@@ -143,7 +143,12 @@ app.get('/status', statusLimiter, (req, res) => {
 });
 
 // Diagnostik-endpoint för att kontrollera status för GTFS-data
-app.get('/api/gtfs-status', (req, res) => {
+const gtfsStatusLimiter = RateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
+});
+
+app.get('/api/gtfs-status', gtfsStatusLimiter, (req, res) => {
   try {
     const routeMap = gtfsLoader.getRouteMap();
     const tripMap = gtfsLoader.getTripMap();
