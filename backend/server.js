@@ -116,6 +116,7 @@ function extractBusNumber(vehicleId) {
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 const app = express();
+const RateLimit = require('express-rate-limit');
 const PORT = process.env.PORT || 3000;
 const API_KEY = process.env.API_KEY;
 
@@ -133,7 +134,11 @@ if (API_KEY) {
 app.use(express.static('/app/frontend'));
 
 // Route till admin-sidan för att se status för GTFS-data
-app.get('/status', (req, res) => {
+const statusLimiter = RateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
+});
+app.get('/status', statusLimiter, (req, res) => {
   res.sendFile('/app/frontend/gtfs-status.html');
 });
 

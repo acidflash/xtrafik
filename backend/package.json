@@ -12,6 +12,7 @@
     "express": "^4.17.1",
     "extract-zip": "^2.0.1",
     "gtfs-realtime-bindings": "^1.0.0",
-    "node-fetch": "^2.7.0"
+    "node-fetch": "^2.7.0",
+    "express-rate-limit": "^7.5.0"
   }
 }
