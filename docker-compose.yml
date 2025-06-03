@@ -1,0 +1,10 @@
+
+services:
+  xtrafik-app:
+    build: ./backend
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    volumes:
+      - ./frontend:/app/frontend

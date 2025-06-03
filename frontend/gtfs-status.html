@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+  <meta charset="UTF-8">
+  <title>X-trafik GTFS Status</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 1000px;
+      margin: 20px auto;
+      padding: 0 20px;
+      line-height: 1.6;
+    }
+    h1 {
+      color: #1c65b0;
+      border-bottom: 2px solid #1c65b0;
+      padding-bottom: 10px;
+    }
+    .info-card {
+      background-color: #f5f5f5;
+      border-radius: 8px;
+      padding: 15px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .status-ok {
+      background-color: #dff0d8;
+      border-left: 5px solid #5cb85c;
+    }
+    .status-warning {
+      background-color: #fcf8e3;
+      border-left: 5px solid #f0ad4e;
+    }
+    .status-error {
+      background-color: #f2dede;
+      border-left: 5px solid #d9534f;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 20px 0;
+    }
+    th, td {
+      padding: 10px;
+      text-align: left;
+      border-bottom: 1px solid #ddd;
+    }
+    th {
+      background-color: #f2f2f2;
+    }
+    .color-sample {
+      width: 20px;
+      height: 20px;
+      display: inline-block;
+      margin-right: 5px;
+      border: 1px solid #000;
+    }
+    pre {
+      background-color: #f8f8f8;
+      padding: 10px;
+      overflow-x: auto;
+      border-radius: 5px;
+    }
+  </style>
+</head>
+<body>
+  <h1>X-trafik GTFS Status</h1>
+  
+  <div id="loading">Laddar GTFS-status...</div>
+  
+  <div id="status-container" style="display:none">
+    <div id="basic-info" class="info-card"></div>
+    <div id="download-info" class="info-card"></div>
+    <div id="route-examples" class="info-card"></div>
+    <div id="raw-data" class="info-card">
+      <h3>Rådata</h3>
+      <pre id="json-data"></pre>
+    </div>
+  </div>
+
+  <script>
+    async function fetchGtfsStatus() {
+      try {
+        const response = await fetch('/api/gtfs-status');
+        const data = await response.json();
+        
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('status-container').style.display = 'block';
+        
+        // Beräkna när nästa nedladdning kommer att ske, baserat på metadata
+        let nextDownload = "Okänt";
+        let downloadCountStatus = "OK";
+        let lastDownload = "Okänt";
+        
+        if (data.downloadMetadata) {
+          const metadata = data.downloadMetadata;
+          
+          if (metadata.lastUpdateTime) {
+            const lastUpdate = new Date(metadata.lastUpdateTime);
+            lastDownload = lastUpdate.toLocaleString();
+            
+            if (metadata.nextScheduledUpdate) {
+              const nextUpdate = new Date(metadata.nextScheduledUpdate);
+              const daysLeft = Math.round((nextUpdate - new Date()) / (1000 * 60 * 60 * 24));
+              nextDownload = `${nextUpdate.toLocaleString()} (om ${daysLeft} dagar)`;
+            }
+          }
+          
+          if (metadata.downloadCount) {
+            const count = metadata.downloadCount;
+            const limit = metadata.monthlyLimit || 50;
+            const percentUsed = (count / limit) * 100;
+            
+            if (percentUsed > 80) {
+              downloadCountStatus = "VARNING";
+            }
+            if (percentUsed > 95) {
+              downloadCountStatus = "KRITISKT";
+            }
+          }
+        }
+        
+        // Uppdatera grundläggande info
+        let basicInfoHtml = `
+          <h3>GTFS-dataöversikt</h3>
+          <p><strong>Data laddad:</strong> ${data.loaded ? '✅ Ja' : '❌ Nej'}</p>
+          <p><strong>Använder testdata:</strong> ${data.usingMockData ? '⚠️ Ja (API-nyckel saknas eller fungerar inte)' : '✅ Nej (använder faktiska data)'}</p>
+          <p><strong>Antal rutter:</strong> ${data.stats.routes}</p>
+          <p><strong>Antal turer:</strong> ${data.stats.trips}</p>
+          <p><strong>Antal block IDs:</strong> ${data.stats.blocks}</p>
+        `;
+        document.getElementById('basic-info').innerHTML = basicInfoHtml;
+        
+        // Uppdatera nedladdningsinfo
+        let statusClass = "status-ok";
+        if (downloadCountStatus === "VARNING") statusClass = "status-warning";
+        if (downloadCountStatus === "KRITISKT") statusClass = "status-error";
+        
+        let downloadInfoHtml = `
+          <h3>API-användning och nedladdningsstatus</h3>
+          <div class="${statusClass}">
+            <p><strong>API-anrop hittills:</strong> ${data.downloadMetadata ? data.downloadMetadata.downloadCount : 'Okänt'} av 50 per månad</p>
+            <p><strong>Status:</strong> ${downloadCountStatus}</p>
+          </div>
+          <p><strong>Senaste nedladdning:</strong> ${lastDownload}</p>
+          <p><strong>Nästa schemalagda nedladdning:</strong> ${nextDownload}</p>
+        `;
+        document.getElementById('download-info').innerHTML = downloadInfoHtml;
+        
+        // Visa exempel på rutter med färger
+        if (data.examples && data.examples.routes && data.examples.routes.length > 0) {
+          let routeExamplesHtml = `
+            <h3>Exempel på ruttinformation</h3>
+            <table>
+              <tr>
+                <th>Rutt-ID</th>
+                <th>Bussnummer</th>
+                <th>Färg</th>
+                <th>Långt namn</th>
+              </tr>
+          `;
+          
+          data.examples.routes.forEach(route => {
+            routeExamplesHtml += `
+              <tr>
+                <td>${route.id}</td>
+                <td>${route.busNumber || 'Okänt'}</td>
+                <td>
+                  <span class="color-sample" style="background-color: ${route.color || '#000000'}"></span>
+                  ${route.color || 'Ingen färg'}
+                </td>
+                <td>${route.longName || 'Inget namn'}</td>
+              </tr>
+            `;
+          });
+          
+          routeExamplesHtml += `</table>`;
+          document.getElementById('route-examples').innerHTML = routeExamplesHtml;
+        } else {
+          document.getElementById('route-examples').innerHTML = '<h3>Exempel på rutter</h3><p>Inga ruttexempel tillgängliga.</p>';
+        }
+        
+        // Visa rådata
+        document.getElementById('json-data').textContent = JSON.stringify(data, null, 2);
+        
+      } catch (error) {
+        console.error('Fel vid hämtning av GTFS-status:', error);
+        document.getElementById('loading').innerHTML = `
+          <div class="info-card status-error">
+            <h3>Ett fel uppstod</h3>
+            <p>${error.message}</p>
+          </div>
+        `;
+      }
+    }
+    
+    // Hämta statusdata när sidan laddas
+    fetchGtfsStatus();
+  </script>
+</body>
+</html>

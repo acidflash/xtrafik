@@ -1,0 +1,725 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+  <meta charset="UTF-8">
+  <title>X-trafik Realtidskarta</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <style>
+    body { margin: 0; padding: 0; }
+    #map { height: 100vh; }
+    .info {
+      padding: 6px 8px;
+      background: white;
+      background: rgba(255, 255, 255, 0.9);
+      box-shadow: 0 0 15px rgba(0, 0, 0, 0.2);
+      border-radius: 5px;
+      transition: background-color 0.3s ease;
+    }
+    .info h4 {
+      margin: 0 0 5px;
+      color: #777;
+    }
+    .legend {
+      line-height: 18px;
+      color: #555;
+    }
+    .legend i {
+      width: 18px;
+      height: 18px;
+      float: left;
+      margin-right: 8px;
+      opacity: 0.7;
+    }
+    .bus-icon {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      font-size: 12px;
+    }
+    .bus-number {
+      position: absolute;
+      top: 2px; /* Placera nära toppen av bussen */
+      left: 50%;
+      transform: translate(-50%, 0);
+      font-weight: bold;
+      color: black; /* Svart text på vit bakgrund för bästa kontrast */
+      text-shadow: 0px 0px 3px white, 0px 0px 3px white; /* Vit skugga */
+      font-size: 14px; /* Större text */
+      background-color: white; /* Vit bakgrund bakom texten */
+      padding: 0px 4px;
+      border-radius: 3px;
+      border: 1px solid black; /* Svart kant för ytterligare kontrast */
+      z-index: 1000; /* Säkerställ att numret visas överst */
+    }
+    
+    /* Ny stil för buss-containern */
+    .bus-icon-new {
+      display: block;
+    }
+    
+    /* Hantera zoomnivåer - göra texten mer läsbar på utzoomad karta */
+    .leaflet-zoom-animated {
+      will-change: transform;
+    }
+    
+    /* Förbättra specificiteten för att säkerställa att våra stilar tillämpas */
+    .leaflet-marker-icon.bus-icon-new .bus-number-container {
+      /* Redan definerad inline, men förstärker här för säkerhets skull */
+      box-shadow: 0 0 4px black;
+    }    .filter-control {
+      padding: 6px 8px;
+      background: white;
+      background: rgba(255, 255, 255, 0.9);
+      box-shadow: 0 0 15px rgba(0, 0, 0, 0.2);
+      border-radius: 5px;
+      margin-bottom: 10px;  /* Add space below for layer control */
+    }
+    .filter-control input,
+    .filter-control button {
+      margin-top: 5px;
+    }
+    /* Improve layer control appearance */
+    .leaflet-control-layers {
+      box-shadow: 0 0 15px rgba(0, 0, 0, 0.2);
+      border-radius: 5px !important;
+      border: none !important;
+    }
+    .leaflet-control-layers-expanded {
+      padding: 6px 8px;
+      background: rgba(255, 255, 255, 0.9);
+    }
+    .update-indicator {
+      transition: all 0.3s ease;
+    }
+    .update-indicator.flash {
+      background: rgba(255, 250, 205, 0.9);
+      font-weight: bold;
+      color: #333;
+    }
+    @keyframes fade {
+      0% { opacity: 0.4; }
+      50% { opacity: 1; }
+      100% { opacity: 0.4; }
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script>    const map = L.map('map').setView([60.6749, 17.1413], 10); // Gävle
+
+    // Define base map layers
+    const baseMaps = {
+      "OpenStreetMap": L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors'
+      }),
+      "OpenTopoMap": L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenTopoMap contributors'
+      }),
+      "Esri WorldImagery": L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        attribution: '&copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+      }),
+      "CyclOSM": L.tileLayer('https://{s}.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png', {
+        attribution: '&copy; CyclOSM contributors'
+      })
+    };
+      // Get the saved layer from localStorage or use default
+    const savedLayer = localStorage.getItem('preferredMapLayer') || "OpenStreetMap";
+    baseMaps[savedLayer].addTo(map);
+      // Create and add layer control with a title
+    const layerControl = L.control.layers(baseMaps, null, {position: 'topright'}).addTo(map);
+    
+    // Add a title to the layer control
+    const layerControlElement = layerControl.getContainer();
+    const layerTitle = document.createElement('div');
+    layerTitle.innerHTML = '<h4 style="margin: 0 0 5px 0; text-align: center;">Kartstilar</h4>';
+    layerControlElement.insertBefore(layerTitle, layerControlElement.firstChild);
+    
+    // Save the preferred layer when user changes it
+    map.on('baselayerchange', function(e) {
+      localStorage.setItem('preferredMapLayer', e.name);
+    });
+
+    // Skapa grupper för att hantera markörer - gör det enkelt att rensa gamla och gruppera utifrån linje
+    let markersGroup = L.layerGroup().addTo(map);
+    let markersByRoute = {}; // Håll markörer separerade per linje för enklare filtrering
+    
+    // Skapa legend
+    let legend = L.control({position: 'bottomright'});
+    
+    // Spara aktiva filter
+    let activeFilter = '';
+    let busLines = new Set();
+    
+    // Skapa färgmappning för busslinjer - används som fallback när GTFS-färger saknas
+    const busColors = {
+      // Stadsbussar i Gävle
+      '1': '#00796B', // Turkos
+      '2': '#D32F2F', // Röd
+      '3': '#7B1FA2', // Lila
+      '4': '#FBC02D', // Gul
+      '10': '#1976D2', // Blå
+      '11': '#388E3C', // Grön
+      '12': '#F57C00', // Orange
+      '15': '#5D4037', // Brun
+      // Fallback-färger för andra linjer
+      'default': '#1c65b0' // X-trafik blå
+    };
+    
+    // Skapa informationsruta för att visa antal fordon
+    let info = L.control();
+    info.onAdd = function() {
+      this._div = L.DomUtil.create('div', 'info');
+      this.update(0);
+      return this._div;
+    };
+    info.update = function(count, filtered = false) {
+      this._div.innerHTML = '<h4>X-trafik Realtid</h4>' + 
+        (count ? count + ' fordon visas' : 'Laddar fordon...') +
+        (filtered ? ' (filtrerat)' : '');
+    };
+    info.addTo(map);
+    
+    // Skapa filterkontroll
+    let filterControl = L.control({position: 'topright'});
+    filterControl.onAdd = function() {
+      const div = L.DomUtil.create('div', 'filter-control');
+      div.innerHTML = `
+        <h4>Filtrera efter linje</h4>
+        <input type="text" id="lineFilter" placeholder="Linjenummer, t.ex. 1" />
+        <button id="applyFilter">Filtrera</button>
+        <button id="clearFilter">Rensa</button>
+      `;
+      return div;
+    };
+    filterControl.addTo(map);
+    
+    // Lägg till händelsehanterare för filterknappar
+    document.getElementById('applyFilter').addEventListener('click', function() {
+      activeFilter = document.getElementById('lineFilter').value.trim();
+      fetchData();
+    });
+    
+    document.getElementById('clearFilter').addEventListener('click', function() {
+      activeFilter = '';
+      document.getElementById('lineFilter').value = '';
+      fetchData();
+    });
+    
+    // Förhindra att karta panoreras när användaren använder filterkontrollen
+    document.querySelector('.filter-control').addEventListener('mousedown', function(e) {
+      e.stopPropagation();
+    });
+
+    // Få en färg för busslinje - prioriterar GTFS-färgkod
+    function getBusColor(busNumber, routeColor) {
+      // Om vi har en GTFS-färgkod direkt från API:et, använd den (prioritera)
+      if (routeColor && routeColor.startsWith('#')) {
+        return routeColor;
+      }
+      // Annars, använd fördefinierad färg eller fallback
+      return busColors[busNumber] || busColors['default'];
+    }
+    
+    // Rita en riktningspil under bussen
+    function createDirectionMarker(lat, lon, bearing, color, busNumber) {
+      const arrowIcon = L.divIcon({
+        html: `<div style="transform: rotate(${bearing}deg); width: 20px; height: 20px;">
+          <svg width="20" height="20" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+            <path d="M10,2 L16,10 L10,18 L4,10 Z" fill="${color}" stroke="white" stroke-width="1" />
+          </svg>
+        </div>`,
+        className: '',
+        iconSize: [20, 20],
+        iconAnchor: [10, 10]
+      });
+      
+      return L.marker([lat, lon], { icon: arrowIcon, zIndexOffset: -1 });
+    }
+    
+    // Uppdatera legend med aktiva busslinjer
+    function updateLegend(busLinesSet) {
+      if (legend._map) map.removeControl(legend);
+      
+      // Om det finns mindre än 2 busslinjer, visa ingen legend
+      if (busLinesSet.size < 2) return;
+      
+      // Bygg en karta över busslinjer och deras färger från aktiva fordon
+      let routeColors = {};
+      let routeNames = {};
+      
+      // Samla alla aktiva fordon för att få deras färger
+      Object.keys(markersByRoute).forEach(route => {
+        if (markersByRoute[route] && markersByRoute[route].length > 0) {
+          // Försök få GTFS-färg från markören
+          const marker = markersByRoute[route][0];
+          if (marker && marker.options && marker.options.icon) {
+            const html = marker.options.icon.options.html || "";
+            // Extrahera färg från HTML-strängen med en regex
+            const colorMatch = html.match(/background-color:\s*([^;]+);/);
+            if (colorMatch && colorMatch[1]) {
+              routeColors[route] = colorMatch[1].trim();
+            }
+          }
+        }
+      });
+      
+      legend.onAdd = function(map) {
+        const div = L.DomUtil.create('div', 'info legend');
+        div.innerHTML = '<h4>Busslinjer</h4>';
+        
+        busLinesSet.forEach(line => {
+          // Använd samlade färger om tillgängliga, annars fallback till fördefinierad färg
+          const color = routeColors[line] || getBusColor(line);
+          // Lägg till eventuellt långt namn om tillgängligt
+          const routeName = routeNames[line] ? ` - ${routeNames[line]}` : '';
+          
+          // Använd samma stil som våra nya bussikoner
+          div.innerHTML += `
+            <div style="display: flex; align-items: center; margin-bottom: 5px;">
+              <!-- Enklare bussform som matchar vår nya design -->
+              <div style="position: relative; margin-right: 10px;">
+                <div style="
+                  width: 24px; 
+                  height: 14px; 
+                  background-color: ${color}; 
+                  border: 2px solid white; 
+                  border-radius: 4px;
+                  position: relative;
+                  box-shadow: 0 0 3px rgba(0,0,0,0.5);
+                ">
+                </div>
+                <div style="
+                  position: absolute;
+                  top: -8px;
+                  left: 50%;
+                  transform: translateX(-50%);
+                  background: white;
+                  color: black;
+                  border: 1px solid black;
+                  border-radius: 8px;
+                  padding: 0 4px;
+                  font-weight: bold;
+                  font-size: 10px;
+                  text-align: center;
+                ">${line}</div>
+              </div>
+              Linje ${line}${routeName}
+            </div>
+          `;
+        });
+        
+        return div;
+      };
+      
+      legend.addTo(map);
+    }
+    
+    // Håll koll på aktuell zoomnivå för att kunna anpassa markörstorlek vid olika zoomnivåer
+    let currentZoomLevel = map.getZoom();
+    
+    // Lyssna på zoomhändelser för att kunna anpassa markörerna
+    map.on('zoomend', function() {
+      currentZoomLevel = map.getZoom();
+      // Vi behöver inte uppdatera hela kartan, vi kan lägga till logik här senare vid behov
+    });
+    
+    async function fetchData() {
+      try {
+        // Rensa tidigare markörer innan nya läggs till
+        markersGroup.clearLayers();
+        busLines.clear();
+        markersByRoute = {}; // Rensa tidigare linjespecifika markörer
+        
+        // Återställ diagnostikflagga för varje ny datahämtning
+        window.diagLogged = false;
+        
+        const response = await fetch('/api/vehicles');        const data = await response.json();        // Lägg till hårdkodade bussnummer direkt i frontend
+        const transformedData = data.map(entity => {
+          // Skapa ett nytt fordonsobjekt med bussnummer direkt          // Börja med att skapa ett nytt fordonsobjekt från det ursprungliga
+          const transformedVehicle = { ...entity };
+          
+          // Prioritetsordning för att bestämma bussnumret:
+          // 1. Använd bussnummer från backend om det finns och är giltigt
+          // 2. För specifika kända problematiska fordons-ID, använd direktmappning
+          // 3. För standard X-trafik format (16 siffror), extrahera baserat på företags-ID
+          // 4. Använd ett standardvärde om inget annat fungerar
+          
+          if (entity.vehicle && entity.vehicle.id) {
+            const vehicleId = entity.vehicle.id;
+            
+          // Steg 1: Specifika problematiska fordons-ID som måste hanteras särskilt
+            // Dessa har högst prioritet och överskriver alla andra regler
+            const directVehicleIdMap = {
+              '9031021000557753': '55' // Detta specifika fordon är känt för att visa fel linjenummer
+            };
+            
+            if (directVehicleIdMap[vehicleId]) {
+              transformedVehicle.busNumber = directVehicleIdMap[vehicleId];
+              console.log(`Frontend direktmappning för fordons-ID ${vehicleId} -> linje ${transformedVehicle.busNumber}`);
+            }
+            // Steg 2: Använd backend-värde om det finns
+            else if (entity.busNumber && entity.busNumber !== 'Okänt') {
+              transformedVehicle.busNumber = entity.busNumber;
+              console.log(`Använder backend-extraherat bussnummer ${entity.busNumber} för ${vehicleId}`);
+            }
+            // Steg 3: Standard 16-siffrigt X-trafik format
+            else if (vehicleId.length === 16) {
+              const companyId = vehicleId.substring(6, 10);
+              
+              // Komplett mappningstabell
+              const companyIdMap = {
+                '1000': '44',
+                '1001': '27',
+                '0005': '55',
+                '1002': '1',
+                '1003': '2',
+                '1004': '3',
+                '1005': '4',
+                '1010': '10',
+                '1011': '11',
+                '1012': '12',
+                '1015': '15',
+                '1020': '20',
+                '1030': '30',
+                '1041': '41',
+                '1042': '42',
+                '1050': '50',
+                '0051': '51',
+                '0052': '52',
+                '0054': '54',
+                '0056': '56',
+                '0057': '57',
+                '0058': '58',
+                '0059': '59'
+              };
+              
+              if (companyIdMap[companyId]) {
+                transformedVehicle.busNumber = companyIdMap[companyId];
+                console.log(`Frontend mappning från företags-ID ${companyId} -> linje ${transformedVehicle.busNumber}`);
+              } else {
+                // Om företags-ID börjar med '00', använd de två sista siffrorna som linjenummer
+                if (companyId.startsWith('00')) {
+                  const extractedNumber = companyId.substring(2).replace(/^0+/, '');
+                  if (extractedNumber && parseInt(extractedNumber) > 0) {
+                    transformedVehicle.busNumber = extractedNumber;
+                    console.log(`Frontend extraherade linje ${extractedNumber} från företags-ID ${companyId}`);
+                  } else {
+                    transformedVehicle.busNumber = '42'; // Default om inget annat fungerar
+                  }
+                } else {
+                  transformedVehicle.busNumber = '42'; // Default om inget annat fungerar
+                }
+              }
+            } else {
+              // För andra ID-format, använd backend-värdet eller visa 'X'
+              transformedVehicle.busNumber = entity.busNumber || 'X';
+            }
+          } else {
+            // Inget fordons-ID alls
+            transformedVehicle.busNumber = '?';
+          }
+          
+          return transformedVehicle;
+        });
+
+        // Filtrera fordon om ett filter är aktivt
+        const filteredData = activeFilter 
+          ? transformedData.filter(v => v.busNumber === activeFilter || (v.routeId && v.routeId === activeFilter))
+          : transformedData;
+        
+        // Uppdatera informationsrutan med antal fordon
+        info.update(filteredData.length, activeFilter !== '');
+        
+        // Logga bussnumren för debugging
+        console.log('Inkommande fordonsdata med bussnummer:');
+        filteredData.forEach((vehicle, index) => {
+          if (index < 10) { // Begränsa loggning till första 10 för att inte översvämma konsolen
+            console.log(`Fordon ${index}: busNumber=${vehicle.busNumber}, routeId=${vehicle.routeId}, has position: ${!!vehicle.position}`);
+          }
+        });
+
+        filteredData.forEach(vehicle => {
+          if (!vehicle.position) return; // Hoppa över fordon utan positionsdata
+          
+          const lat = vehicle.position.latitude;
+          const lon = vehicle.position.longitude;
+          const speedMs = vehicle.position.speed || 0;
+          // Konvertera hastighet från m/s till km/h
+          const speedKmh = Math.round(speedMs * 3.6);
+          const bearing = vehicle.position.bearing || 0;
+          
+          // Använd antingen bussnummer eller en standardkategori
+          const routeId = vehicle.busNumber || 'okänd';
+          
+          // Skapa en array för denna busslinje om den inte finns
+          if (!markersByRoute[routeId]) {
+            markersByRoute[routeId] = [];
+          }
+          
+          // Spara bussnumret för legend
+          if (vehicle.busNumber) {
+            busLines.add(vehicle.busNumber);
+          }
+          
+          // Hämta färg baserat på bussnummer och GTFS-färgdata
+          const busColor = getBusColor(vehicle.busNumber, vehicle.routeColor);
+            // Konvertera UNIX-tidsstämpel till läsbart format
+          // Hanterar två format: antingen ett nummer eller objekt med low/high-värden
+          let timestampValue;
+          if (typeof vehicle.timestamp === 'number') {
+            timestampValue = vehicle.timestamp;
+          } else if (vehicle.timestamp && vehicle.timestamp.low !== undefined) {
+            // Protobuf timestamp format (low är sekunder sedan 1970)
+            timestampValue = vehicle.timestamp.low;
+          } else {
+            timestampValue = Math.floor(Date.now() / 1000); // Använd nuvarande tid som fallback
+          }
+          const timestamp = new Date(parseInt(timestampValue) * 1000).toLocaleTimeString();
+          
+          // Bestäm vilket linjenummer som ska visas, prioritera i denna ordning:
+          // 1. GTFS routeInfo.shortName (från routes.txt)
+          // 2. vehicle.busNumber (från extraheringsalgoritmen)
+          // 3. vehicle.trip.route_id (om det ser ut som ett nummer)
+          // 4. "X-trafik" (fallback)
+          let displayBusNumber = "X-trafik";
+          
+          if (vehicle.routeInfo && vehicle.routeInfo.shortName) {
+            displayBusNumber = vehicle.routeInfo.shortName;
+          } else if (vehicle.busNumber && vehicle.busNumber !== 'Okänt') {
+            displayBusNumber = vehicle.busNumber;
+          } else if (vehicle.trip && vehicle.trip.route_id && /^\d+$/.test(vehicle.trip.route_id)) {
+            displayBusNumber = vehicle.trip.route_id;
+          }
+          
+          // Skapa innehållet för popup-fönstret med mer detaljerad information
+          let popupContent = `
+            <div style="min-width: 200px;">
+              <h3 style="margin: 0 0 5px 0; padding: 4px; background-color: ${busColor}; color: ${vehicle.routeTextColor || '#FFFFFF'}; text-align: center; border-radius: 4px;">
+                Linje ${displayBusNumber}
+              </h3>
+          `;
+          
+          // Lägg till ruttens långnamn om tillgängligt
+          if (vehicle.routeLongName) {
+            popupContent += `<p style="font-weight: bold; margin: 5px 0;">${vehicle.routeLongName}</p>`;
+          }
+          
+          popupContent += `
+            <table style="width: 100%;">
+              <tr>
+                <td><b>Hastighet:</b></td>
+                <td>${speedKmh} km/h</td>
+              </tr>
+              <tr>
+                <td><b>Uppdaterad:</b></td>
+                <td>${timestamp}</td>
+              </tr>
+          `;
+          
+          // Lägg till detaljerad rutinformation om tillgänglig
+          if (vehicle.routeInfo) {
+            if (vehicle.routeInfo.agency) {
+              popupContent += `
+                <tr>
+                  <td><b>Operatör:</b></td>
+                  <td>${vehicle.routeInfo.agency}</td>
+                </tr>
+              `;
+            }
+            
+            if (vehicle.routeInfo.type !== undefined) {
+              let vehicleType = "Buss";
+              // GTFS route_type: 0=Tram, 1=Subway, 2=Rail, 3=Bus, 4=Ferry, etc.
+              switch(vehicle.routeInfo.type) {
+                case 0: vehicleType = "Spårvagn"; break;
+                case 1: vehicleType = "Tunnelbana"; break;
+                case 2: vehicleType = "Tåg"; break;
+                case 3: vehicleType = "Buss"; break;
+                case 4: vehicleType = "Färja"; break;
+              }
+              
+              popupContent += `
+                <tr>
+                  <td><b>Fordonstyp:</b></td>
+                  <td>${vehicleType}</td>
+                </tr>
+              `;
+            }
+          }
+          
+          // Lägg till ytterligare information om tillgänglig
+          if (vehicle.trip && vehicle.trip.trip_id) {
+            popupContent += `
+              <tr>
+                <td><b>Tur:</b></td>
+                <td>${vehicle.trip.trip_id}</td>
+              </tr>
+            `;
+          }
+          
+          if (vehicle.trip && vehicle.trip.route_id) {
+            popupContent += `
+              <tr>
+                <td><b>Rutt-ID:</b></td>
+                <td>${vehicle.trip.route_id}</td>
+              </tr>
+            `;
+          }
+          
+          if (vehicle.vehicle && vehicle.vehicle.id) {
+            popupContent += `
+              <tr>
+                <td><b>Fordons-ID:</b></td>
+                <td>${vehicle.vehicle.id}</td>
+              </tr>
+            `;
+          }
+          
+          popupContent += `
+            </table>
+            </div>
+          `;
+          
+          // HELT NY APPROACH: Skapa bussikonen som en DIV istället för SVG för bättre kompatibilitet
+          // För bussikonerna använder vi samma displayBusNumber som för popup
+          
+          // Skapa en kombination av SVG-buss och textetikett för linjenumret
+          const busIcon = L.divIcon({
+            html: `
+              <div class="bus-container" style="position: relative;">
+                <!-- Bussikonen som bakgrund -->
+                <div class="bus-body" style="
+                  width: 40px; 
+                  height: 24px; 
+                  background-color: ${busColor}; 
+                  border: 2px solid white; 
+                  border-radius: 6px;
+                  position: relative;
+                  box-shadow: 0 0 5px rgba(0,0,0,0.5);
+                ">
+                  <!-- Hjul som absolut positionerade element -->
+                  <div style="position:absolute; width:6px; height:6px; border-radius:50%; background:#333; bottom:-3px; left:6px;"></div>
+                  <div style="position:absolute; width:6px; height:6px; border-radius:50%; background:#333; bottom:-3px; right:6px;"></div>
+                </div>
+                
+                <!-- Linjenummer som separat element ovanpå bussen -->
+                <div class="bus-number-container" style="
+                  position: absolute;
+                  top: -10px;
+                  left: 50%;
+                  transform: translateX(-50%);
+                  background: white;
+                  color: black;
+                  border: 2px solid black;
+                  border-radius: 12px;
+                  padding: 1px 6px;
+                  font-weight: bold;
+                  font-size: 14px;
+                  z-index: 1000;
+                  min-width: 14px;
+                  text-align: center;
+                  box-shadow: 0 0 4px rgba(0,0,0,0.8);
+                ">${displayBusNumber}</div>
+              </div>
+            `,
+            className: 'bus-icon-new',
+            iconSize: [40, 36],
+            iconAnchor: [20, 12]
+          });
+          
+          // Skapa och lägg till markören
+          const busMarker = L.marker([lat, lon], { 
+              icon: busIcon,
+              zIndexOffset: 1000 // Säkerställ att bussmarkören är över andra element
+            })
+            .bindPopup(popupContent)
+            .addTo(markersGroup);
+            
+          // Diagnostik för första fordonet i varje laddning
+          if (routeId && !window.diagLogged) {
+            console.log(`Diagnostik för buss ${routeId}:`, {
+              hasNumber: !!vehicle.busNumber,
+              numberValue: vehicle.busNumber,
+              busColor: busColor,
+              iconHtml: busIcon.options.html.substring(0, 150) + '...',
+              displayBusNumber: displayBusNumber
+            });
+            window.diagLogged = true;
+          }
+          
+          // Spara även i linjegruppen
+          markersByRoute[routeId].push(busMarker);
+            
+          // Om fordonet rör sig (hastighet > 0), lägg till en riktningspil
+          if (speedKmh > 0 && bearing !== 0) {
+            const dirMarker = createDirectionMarker(lat, lon, bearing, busColor, vehicle.busNumber)
+              .addTo(markersGroup);
+            
+            // Spara även riktningspilen i linjegruppen
+            markersByRoute[routeId].push(dirMarker);
+          }
+        });
+        
+        // Uppdatera legend med aktiva busslinjer
+        updateLegend(busLines);
+        
+        // Zooma kartan endast första gången data laddas
+        if (filteredData.length > 0 && !activeFilter && !window.initialMapViewSet) {
+          const bounds = [];
+          filteredData.forEach(vehicle => {
+            if (vehicle.position && vehicle.position.latitude && vehicle.position.longitude) {
+              bounds.push([vehicle.position.latitude, vehicle.position.longitude]);
+            }
+          });
+          
+          if (bounds.length > 0) {
+            map.fitBounds(bounds, { padding: [50, 50] });
+            // Markera att den initiala kartpositionen har ställts in
+            window.initialMapViewSet = true;
+          }
+        }
+      } catch (error) {
+        console.error('Fel vid hämtning av fordon:', error);
+        info.update(0, false);
+        info._div.innerHTML += '<br><span style="color: red;">Fel vid hämtning av data</span>';
+      }
+    }
+
+    // Visa användaren att data laddas
+    info._div.innerHTML = '<h4>X-trafik Realtid</h4>Laddar fordon...';
+    
+    // Starta datahämtning - initialMapViewSet är false första gången
+    window.initialMapViewSet = false;
+    fetchData();
+    
+    // Lägg till uppdateringsindikator
+    const updateIndicator = L.control({position: 'bottomleft'});
+    updateIndicator.onAdd = function() {
+      const div = L.DomUtil.create('div', 'info update-indicator');
+      div.innerHTML = 'Data uppdateras automatiskt var 15:e sekund';
+      return div;
+    };
+    updateIndicator.addTo(map);
+    
+    // Funktion som visar en kort animation när data uppdateras
+    function showUpdateFlash() {
+      const indicator = document.querySelector('.update-indicator');
+      indicator.classList.add('flash');
+      indicator.innerHTML = 'Uppdaterar data...';
+      
+      setTimeout(() => {
+        indicator.classList.remove('flash');
+        indicator.innerHTML = 'Data uppdateras automatiskt var 15:e sekund';
+      }, 1000);
+    }
+    
+    // Uppdatera var 15:e sekund med visuell feedback
+    setInterval(() => {
+      showUpdateFlash();
+      fetchData();
+    }, 15000);
+  </script>
+</body>
+</html>
