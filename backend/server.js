@@ -220,7 +220,12 @@ app.get('/admin/refresh-gtfs', statusLimiter, async (req, res) => {
 });
 
 // "Catch-all" rutt för att hantera SPA-routing (om tillämpligt)
-app.get('*', (req, res) => {
+const catchAllLimiter = RateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 50, // max 50 requests per windowMs
+});
+
+app.get('*', catchAllLimiter, (req, res) => {
   // Kontrollera om begäran är för en API-endpoint
   if (req.path.startsWith('/api/')) {
     return res.status(404).json({ error: 'API endpoint hittades inte' });
