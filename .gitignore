@@ -42,6 +42,7 @@ Thumbs.db
 # GTFS temporary data
 backend/gtfs-data/*.zip
 backend/gtfs-data/*.txt
+backend/gtfs-data.zip
 
 # Editor directories and files
 .idea/
