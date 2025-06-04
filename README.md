@@ -24,8 +24,8 @@ En webapplikation som visar realtidspositioner för X-trafiks kollektivtrafikfor
 
 1. Skapa en `.env`-fil i projektets rotkatalog med dina API-nycklar:
    ```
-   API_KEY=din_xtrafik_realtids_api_nyckel_här
-   GTFS_API_KEY=din_gtfs_statiska_data_api_nyckel_här
+   API_KEY=<GTFS Regional Realtime>
+   GTFS_API_KEY=<GTFS Regional Static data>
    ```
    
    Notera att du behöver två olika API-nycklar:

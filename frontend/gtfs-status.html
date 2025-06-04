@@ -5,105 +5,178 @@
   <title>X-trafik GTFS Status</title>
   <style>
     body {
-      font-family: Arial, sans-serif;
-      max-width: 1000px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+      max-width: 800px;
       margin: 20px auto;
       padding: 0 20px;
       line-height: 1.6;
+      color: #333;
+      background-color: #f9f9f9;
     }
     h1 {
       color: #1c65b0;
       border-bottom: 2px solid #1c65b0;
       padding-bottom: 10px;
+      margin-top: 0;
+    }
+    h2 {
+      margin-top: 15px;
+      margin-bottom: 10px;
+      color: #2c3e50;
     }
     .info-card {
-      background-color: #f5f5f5;
+      background-color: #fff;
       border-radius: 8px;
-      padding: 15px;
+      padding: 20px;
       margin-bottom: 20px;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
     }
     .status-ok {
-      background-color: #dff0d8;
-      border-left: 5px solid #5cb85c;
+      background-color: #d4edda;
+      border-left: 5px solid #28a745;
     }
     .status-warning {
-      background-color: #fcf8e3;
-      border-left: 5px solid #f0ad4e;
+      background-color: #fff3cd;
+      border-left: 5px solid #ffc107;
     }
     .status-error {
-      background-color: #f2dede;
-      border-left: 5px solid #d9534f;
+      background-color: #f8d7da;
+      border-left: 5px solid #dc3545;
     }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      margin: 20px 0;
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      grid-gap: 15px;
+      margin: 15px 0;
     }
-    th, td {
-      padding: 10px;
-      text-align: left;
-      border-bottom: 1px solid #ddd;
+    .stat-box {
+      background-color: #f5f5f5;
+      padding: 15px;
+      border-radius: 6px;
+      text-align: center;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      transition: transform 0.2s ease;
     }
-    th {
-      background-color: #f2f2f2;
+    .stat-box:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 3px 5px rgba(0,0,0,0.15);
     }
-    .color-sample {
-      width: 20px;
-      height: 20px;
+    .stat-value {
+      font-size: 28px;
+      font-weight: bold;
+      color: #1c65b0;
+      margin: 5px 0;
+    }
+    .stat-label {
+      font-size: 14px;
+      color: #555;
+      font-weight: 500;
+    }
+    .refresh-button {
+      background-color: #1c65b0;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: bold;
+      margin-top: 10px;
+      transition: background-color 0.2s ease;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    .refresh-button:hover {
+      background-color: #164c8c;
+      box-shadow: 0 3px 7px rgba(0,0,0,0.15);
+    }
+    .api-status {
+      padding: 12px;
+      border-radius: 6px;
+      font-weight: bold;
+      margin-top: 15px;
+      text-align: center;
+      font-size: 16px;
+    }
+    .api-status.ok {
+      background-color: #d4edda;
+      color: #155724;
+    }
+    .api-status.warning {
+      background-color: #fff3cd;
+      color: #856404;
+    }
+    .api-status.error {
+      background-color: #f8d7da;
+      color: #721c24;
+    }
+    .last-updated {
+      font-size: 12px;
+      color: #777;
+      text-align: center;
+      margin-top: 10px;
+    }
+    .status-indicator {
       display: inline-block;
-      margin-right: 5px;
-      border: 1px solid #000;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      margin-right: 8px;
     }
-    pre {
-      background-color: #f8f8f8;
-      padding: 10px;
-      overflow-x: auto;
-      border-radius: 5px;
+    .status-indicator.green {
+      background-color: #28a745;
+    }
+    .status-indicator.yellow {
+      background-color: #ffc107;
+    }
+    .status-indicator.red {
+      background-color: #dc3545;
     }
   </style>
 </head>
 <body>
-  <h1>X-trafik GTFS Status</h1>
-  
-  <div id="loading">Laddar GTFS-status...</div>
+  <div class="info-card">
+    <h1>X-trafik GTFS Status</h1>
+    <div id="loading">Laddar GTFS-status...</div>
+  </div>
   
   <div id="status-container" style="display:none">
-    <div id="basic-info" class="info-card"></div>
-    <div id="download-info" class="info-card"></div>
-    <div id="route-examples" class="info-card"></div>
-    <div id="raw-data" class="info-card">
-      <h3>Rådata</h3>
-      <pre id="json-data"></pre>
-    </div>
+    <div id="system-status" class="info-card"></div>
+    <div id="api-usage" class="info-card"></div>
+    
+    <button class="refresh-button" onclick="fetchGtfsStatus()">
+      <svg style="width:16px;height:16px;margin-right:5px;vertical-align:middle" viewBox="0 0 24 24">
+        <path fill="currentColor" d="M17.65,6.35C16.2,4.9 14.21,4 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20C15.73,20 18.84,17.45 19.73,14H17.65C16.83,16.33 14.61,18 12,18A6,6 0 0,1 6,12A6,6 0 0,1 12,6C13.66,6 15.14,6.69 16.22,7.78L13,11H20V4L17.65,6.35Z" />
+      </svg>
+      Uppdatera status
+    </button>
   </div>
 
   <script>
     async function fetchGtfsStatus() {
       try {
+        document.getElementById('loading').textContent = "Laddar GTFS-status...";
+        document.getElementById('loading').style.display = 'block';
+        document.getElementById('status-container').style.display = 'none';
+        
         const response = await fetch('/api/gtfs-status');
         const data = await response.json();
         
         document.getElementById('loading').style.display = 'none';
         document.getElementById('status-container').style.display = 'block';
         
-        // Beräkna när nästa nedladdning kommer att ske, baserat på metadata
+        // Beräkna API status
         let nextDownload = "Okänt";
-        let downloadCountStatus = "OK";
-        let lastDownload = "Okänt";
+        let apiStatus = "ok";
+        let statusText = "API-status: OK";
+        let statusIndicator = "green";
+        let daysLeft = "?";
         
         if (data.downloadMetadata) {
           const metadata = data.downloadMetadata;
           
-          if (metadata.lastUpdateTime) {
-            const lastUpdate = new Date(metadata.lastUpdateTime);
-            lastDownload = lastUpdate.toLocaleString();
-            
-            if (metadata.nextScheduledUpdate) {
-              const nextUpdate = new Date(metadata.nextScheduledUpdate);
-              const daysLeft = Math.round((nextUpdate - new Date()) / (1000 * 60 * 60 * 24));
-              nextDownload = `${nextUpdate.toLocaleString()} (om ${daysLeft} dagar)`;
-            }
+          if (metadata.nextScheduledUpdate) {
+            const nextUpdate = new Date(metadata.nextScheduledUpdate);
+            daysLeft = Math.round((nextUpdate - new Date()) / (1000 * 60 * 60 * 24));
+            nextDownload = `${daysLeft} dagar`;
           }
           
           if (metadata.downloadCount) {
@@ -112,86 +185,94 @@
             const percentUsed = (count / limit) * 100;
             
             if (percentUsed > 80) {
-              downloadCountStatus = "VARNING";
+              apiStatus = "warning";
+              statusText = "API-status: VARNING";
+              statusIndicator = "yellow";
             }
             if (percentUsed > 95) {
-              downloadCountStatus = "KRITISKT";
+              apiStatus = "error";
+              statusText = "API-status: KRITISKT";
+              statusIndicator = "red";
             }
           }
         }
         
-        // Uppdatera grundläggande info
-        let basicInfoHtml = `
-          <h3>GTFS-dataöversikt</h3>
-          <p><strong>Data laddad:</strong> ${data.loaded ? '✅ Ja' : '❌ Nej'}</p>
-          <p><strong>Använder testdata:</strong> ${data.usingMockData ? '⚠️ Ja (API-nyckel saknas eller fungerar inte)' : '✅ Nej (använder faktiska data)'}</p>
-          <p><strong>Antal rutter:</strong> ${data.stats.routes}</p>
-          <p><strong>Antal turer:</strong> ${data.stats.trips}</p>
-          <p><strong>Antal block IDs:</strong> ${data.stats.blocks}</p>
-        `;
-        document.getElementById('basic-info').innerHTML = basicInfoHtml;
-        
-        // Uppdatera nedladdningsinfo
-        let statusClass = "status-ok";
-        if (downloadCountStatus === "VARNING") statusClass = "status-warning";
-        if (downloadCountStatus === "KRITISKT") statusClass = "status-error";
-        
-        let downloadInfoHtml = `
-          <h3>API-användning och nedladdningsstatus</h3>
-          <div class="${statusClass}">
-            <p><strong>API-anrop hittills:</strong> ${data.downloadMetadata ? data.downloadMetadata.downloadCount : 'Okänt'} av 50 per månad</p>
-            <p><strong>Status:</strong> ${downloadCountStatus}</p>
+        // Uppdatera systeminformation
+        let systemStatusHtml = `
+          <h2>Systemöversikt</h2>
+          <div class="stat-grid">
+            <div class="stat-box">
+              <div class="stat-value">${data.stats.routes || 0}</div>
+              <div class="stat-label">Rutter</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-value">${data.stats.trips || 0}</div>
+              <div class="stat-label">Turer</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-value">${data.usingMockData ? 'TEST' : 'LIVE'}</div>
+              <div class="stat-label">Datakälla</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-value">
+                <span class="status-indicator ${data.loaded ? 'green' : 'red'}"></span>
+                ${data.loaded ? 'JA' : 'NEJ'}
+              </div>
+              <div class="stat-label">Data laddad</div>
+            </div>
           </div>
-          <p><strong>Senaste nedladdning:</strong> ${lastDownload}</p>
-          <p><strong>Nästa schemalagda nedladdning:</strong> ${nextDownload}</p>
         `;
-        document.getElementById('download-info').innerHTML = downloadInfoHtml;
+        document.getElementById('system-status').innerHTML = systemStatusHtml;
         
-        // Visa exempel på rutter med färger
-        if (data.examples && data.examples.routes && data.examples.routes.length > 0) {
-          let routeExamplesHtml = `
-            <h3>Exempel på ruttinformation</h3>
-            <table>
-              <tr>
-                <th>Rutt-ID</th>
-                <th>Bussnummer</th>
-                <th>Färg</th>
-                <th>Långt namn</th>
-              </tr>
-          `;
-          
-          data.examples.routes.forEach(route => {
-            routeExamplesHtml += `
-              <tr>
-                <td>${route.id}</td>
-                <td>${route.busNumber || 'Okänt'}</td>
-                <td>
-                  <span class="color-sample" style="background-color: ${route.color || '#000000'}"></span>
-                  ${route.color || 'Ingen färg'}
-                </td>
-                <td>${route.longName || 'Inget namn'}</td>
-              </tr>
-            `;
-          });
-          
-          routeExamplesHtml += `</table>`;
-          document.getElementById('route-examples').innerHTML = routeExamplesHtml;
-        } else {
-          document.getElementById('route-examples').innerHTML = '<h3>Exempel på rutter</h3><p>Inga ruttexempel tillgängliga.</p>';
-        }
-        
-        // Visa rådata
-        document.getElementById('json-data').textContent = JSON.stringify(data, null, 2);
+        // Uppdatera API-användning
+        const apiUsageHtml = `
+          <h2>API-användning</h2>
+          <div class="stat-grid">
+            <div class="stat-box">
+              <div class="stat-value">${data.downloadMetadata ? data.downloadMetadata.downloadCount : '0'}</div>
+              <div class="stat-label">API-anrop (max 50/mån)</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-value">${nextDownload}</div>
+              <div class="stat-label">Till nästa uppdatering</div>
+            </div>
+          </div>
+          <div class="api-status ${apiStatus}">
+            <span class="status-indicator ${statusIndicator}"></span>
+            ${statusText}
+          </div>
+          <div class="last-updated">Senast uppdaterad: ${new Date().toLocaleString('sv-SE')}</div>
+        `;
+        document.getElementById('api-usage').innerHTML = apiUsageHtml;
         
       } catch (error) {
         console.error('Fel vid hämtning av GTFS-status:', error);
         document.getElementById('loading').innerHTML = `
           <div class="info-card status-error">
-            <h3>Ett fel uppstod</h3>
+            <h3>
+              <svg style="width:24px;height:24px;margin-right:8px;vertical-align:middle" viewBox="0 0 24 24">
+                <path fill="currentColor" d="M13,13H11V7H13M13,17H11V15H13M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z" />
+              </svg>
+              Ett fel uppstod
+            </h3>
             <p>${error.message}</p>
+            <button class="refresh-button" onclick="fetchGtfsStatus()" style="margin-top:15px">Försök igen</button>
           </div>
         `;
       }
+    }
+    
+    // Funktion för att formatera datum på ett användarvänligt sätt
+    function formatDate(dateString) {
+      if (!dateString) return "Okänt";
+      const date = new Date(dateString);
+      return date.toLocaleDateString('sv-SE', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
     }
     
     // Hämta statusdata när sidan laddas
