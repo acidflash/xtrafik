@@ -16,7 +16,7 @@ const RateLimit = require('express-rate-limit');
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 const app = express();
-const PORT = process.env.PORT || 3001;  // Använd port 3001 som fallback istället för 3000
+const PORT = process.env.PORT || 3000;  // Använd port 3000
 const API_KEY = process.env.API_KEY;
 
 // Kontrollera och logga API-nyckeln
