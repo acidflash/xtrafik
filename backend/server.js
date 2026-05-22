@@ -18,6 +18,7 @@ dotenv.config({ path: path.resolve(__dirname, '../.env') });
 const app = express();
 const PORT = process.env.PORT || 3000;  // Använd port 3000
 const API_KEY = process.env.API_KEY;
+const ADMIN_KEY = process.env.ADMIN_KEY;
 
 // Kontrollera och logga API-nyckeln
 if (API_KEY) {
@@ -28,6 +29,23 @@ if (API_KEY) {
   console.error('ALLVARLIGT FEL: API_KEY är inte definierad. Kontrollera din .env-fil i projektets rotkatalog.');
   console.error('Servern kommer att starta men API-anrop kommer att misslyckas.');
   // Vi fortsätter köra för att tillåta lokal utveckling, men varnar tydligt
+}
+
+if (!ADMIN_KEY) {
+  console.warn('VARNING: ADMIN_KEY är inte satt. /admin/refresh-gtfs kommer att vara otillgänglig.');
+}
+
+// Middleware som skyddar admin-endpoints med nyckel från Authorization-headern
+function requireAdminKey(req, res, next) {
+  if (!ADMIN_KEY) {
+    return res.status(503).json({ error: 'Admin-nyckel är inte konfigurerad på servern' });
+  }
+  const provided = req.headers['authorization'];
+  if (!provided || provided !== `Bearer ${ADMIN_KEY}`) {
+    console.warn(`Obehörigt försök att nå admin-endpoint från ${req.ip}`);
+    return res.status(401).json({ error: 'Ogiltig eller saknad Authorization-header' });
+  }
+  next();
 }
 
 // Statisk filhantering - Försök med både Docker-sökväg och relativ sökväg
@@ -161,23 +179,42 @@ app.get('/api/vehicles', apiLimiter, async (req, res) => {
     
     // Avkoda GTFS-data
     const feed = transit_realtime.FeedMessage.decode(new Uint8Array(buffer));
-    
-    // Skapa en enkel lista med fordon utan bussnummerlogik
+
     const vehicles = feed.entity
       .filter(entity => entity && entity.vehicle && entity.vehicle.position)
       .map(entity => {
         const vehicle = entity.vehicle;
         const vehicleId = vehicle.vehicle && vehicle.vehicle.id ? vehicle.vehicle.id : 'unknown';
-        
+        const routeId = vehicle.trip ? vehicle.trip.route_id : null;
+        const tripId  = vehicle.trip ? vehicle.trip.trip_id  : null;
+
+        // Bugg #2: slå upp bussnummer och färger från GTFS-datan
+        let busNumber = null;
+        if (routeId) {
+          busNumber = gtfsLoader.getBusNumberFromRouteId(routeId);
+        }
+        if (!busNumber && tripId) {
+          busNumber = gtfsLoader.getBusNumberFromTripId(tripId);
+        }
+
+        const routeColor    = routeId ? gtfsLoader.getRouteColorFromRouteId(routeId)    : '#1c65b0';
+        const routeTextColor = routeId ? gtfsLoader.getRouteTextColorFromRouteId(routeId) : '#FFFFFF';
+        const routeLongName  = routeId ? gtfsLoader.getRouteLongNameFromRouteId(routeId)  : null;
+        const routeInfo      = routeId ? gtfsLoader.getRouteInfoFromRouteId(routeId)      : null;
+
         return {
           id: vehicleId,
+          // Bugg #1: inkludera vehicle-objekt så frontend kan nå fordons-ID
+          vehicle: { id: vehicleId },
           position: vehicle.position,
           timestamp: vehicle.timestamp,
-          routeId: vehicle.trip ? vehicle.trip.route_id : null,
+          routeId,
           trip: vehicle.trip || null,
-          // Standardfärger för alla fordon
-          routeColor: '#1c65b0',
-          routeTextColor: '#FFFFFF'
+          busNumber: busNumber || 'Okänt',
+          routeColor:    routeColor    || '#1c65b0',
+          routeTextColor: routeTextColor || '#FFFFFF',
+          routeLongName,
+          routeInfo
         };
       });
     
@@ -194,7 +231,7 @@ app.get('/api/vehicles', apiLimiter, async (req, res) => {
 });
 
 // Manuell uppdatering av GTFS-data
-app.get('/admin/refresh-gtfs', statusLimiter, async (req, res) => {
+app.get('/admin/refresh-gtfs', requireAdminKey, statusLimiter, async (req, res) => {
   try {
     console.log('Manuell uppdatering av GTFS-data begärd');
     const success = await gtfsLoader.refreshGtfsData();
