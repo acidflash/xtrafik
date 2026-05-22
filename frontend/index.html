@@ -4,6 +4,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>X-trafik Realtidskarta</title>
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#1c65b0">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="X-trafik">
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <style>
     /* ── Design tokens ──────────────────────────────────────────── */
@@ -289,6 +295,7 @@
     /* ── Linjemarkering (dimma ej-valda bussar) ─────────────────── */
     .bus-icon-new { transition: opacity 200ms ease-out, filter 200ms ease-out; }
     .bus-icon-new.dimmed { opacity: 0.15; filter: grayscale(80%); }
+    .bus-icon-new.stale { opacity: 0.5; filter: grayscale(50%); }
 
     /* ── Popup ──────────────────────────────────────────────────── */
     .leaflet-popup-content-wrapper {
@@ -540,6 +547,12 @@
         this._div.innerHTML = `
           <div class="panel-label">X-trafik Realtid</div>
           <div class="info-sub" style="margin-top:4px;">Laddar fordon&hellip;</div>`;
+      } else if (count !== null && count === 0) {
+        this._div.innerHTML = `
+          <div class="panel-label">X-trafik Realtid</div>
+          <div class="info-count" style="font-size:22px;">–</div>
+          <div class="info-sub">${filtered ? 'Inga fordon på vald linje' : 'Inga fordon i vyn'}</div>
+          <div class="info-sub" style="font-size:10px;margin-top:4px;color:var(--color-text-muted);">${filtered ? '' : 'Zooma ut eller panorera'}</div>`;
       } else if (count !== null) {
         this._div.innerHTML = `
           <div class="panel-label">X-trafik Realtid</div>
@@ -837,8 +850,22 @@
           } else {
             tsValue = Math.floor(Date.now() / 1000);
           }
+          const posAge = Math.round((Date.now() / 1000) - tsValue); // sekunder
           const timestamp = new Date(parseInt(tsValue) * 1000)
             .toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+
+          // Ålder-text: "12 s" / "2 min" / "⚠ 5 min"
+          let ageText;
+          let ageOld = false;
+          if (posAge < 60) {
+            ageText = `${posAge} s`;
+          } else if (posAge < 300) {
+            ageText = `${Math.round(posAge / 60)} min`;
+            ageOld = posAge > 120;
+          } else {
+            ageText = `⚠ ${Math.round(posAge / 60)} min`;
+            ageOld = true;
+          }
 
           const displayNumber = vehicle.routeInfo?.shortName ||
             (vehicle.busNumber !== 'Okänt' ? vehicle.busNumber : null) ||
@@ -862,8 +889,12 @@
               <span class="popup-row-value">${speedText}</span>
             </div>
             <div class="popup-row">
-              <span class="popup-row-label">Uppdaterad</span>
+              <span class="popup-row-label">GPS-tid</span>
               <span class="popup-row-value">${timestamp}</span>
+            </div>
+            <div class="popup-row">
+              <span class="popup-row-label">Ålder</span>
+              <span class="popup-row-value" style="${ageOld ? 'color:oklch(55% 0.18 30)' : ''}">${ageText}</span>
             </div>`;
 
           if (vehicle.routeInfo?.agency) {
@@ -905,7 +936,7 @@
                   ${displayNumber}
                 </div>
               </div>`,
-            className: 'bus-icon-new',
+            className: `bus-icon-new${ageOld ? ' stale' : ''}`,
             iconSize: [ICON_SZ, ICON_SZ],
             iconAnchor: [ICON_SZ / 2, ICON_SZ / 2]
           });
@@ -1036,6 +1067,11 @@
 
       startPolling();
     })();
+
+    // Registrera Service Worker för PWA-stöd
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(() => {});
+    }
   </script>
 </body>
 </html>
