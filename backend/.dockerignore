@@ -1,0 +1,14 @@
+# Exclude test and analysis scripts from Docker image
+test-api.js
+test-gtfs-loader.js
+test-bus-extraction.js
+test-specific-id.js
+analyze-problem-id.js
+analyze-vehicle-ids.js
+simple-test.js
+output.txt
+
+# Development files
+*.md
+.env
+.env.*

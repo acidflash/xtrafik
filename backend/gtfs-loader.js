@@ -498,9 +498,9 @@ async function refreshGtfsData() {
 /**
  * Skapa mockdata för tester
  */
-function createMockData() {
+async function createMockData() {
   console.log('Skapar mockdata för tester...');
-  
+
   try {
     // Exempeldata för routes.txt
     const routesData = [
@@ -508,27 +508,25 @@ function createMockData() {
       { route_id: '2', route_short_name: '102' },
       { route_id: '3', route_short_name: '103' }
     ];
-    
+
     // Exempeldata för trips.txt
     const tripsData = [
       { trip_id: '1001', route_id: '1', block_id: 'B1' },
       { trip_id: '1002', route_id: '2', block_id: 'B2' },
       { trip_id: '1003', route_id: '3', block_id: 'B3' }
     ];
-    
+
     // Skriv ut exempeldata till filer
-    fs.writeFileSync(ROUTES_PATH, 'route_id,route_short_name\n' + 
+    fs.writeFileSync(ROUTES_PATH, 'route_id,route_short_name\n' +
       routesData.map(r => `${r.route_id},${r.route_short_name}`).join('\n'));
-    fs.writeFileSync(TRIPS_PATH, 'trip_id,route_id,block_id\n' + 
+    fs.writeFileSync(TRIPS_PATH, 'trip_id,route_id,block_id\n' +
       tripsData.map(t => `${t.trip_id},${t.route_id},${t.block_id}`).join('\n'));
-    
-    console.log('Mockdata skapad:');
-    console.log('- routes.txt:', routesData);
-    console.log('- trips.txt:', tripsData);
-    
+
+    console.log('Mockdata skapad');
+
     // Tvinga inläsning av ny mockdata
     usingMockData = true;
-    loadGtfsData(true);
+    await loadGtfsData(true);
   } catch (error) {
     console.error('Fel vid skapande av mockdata:', error);
   }
@@ -635,9 +633,6 @@ async function loadDataWithFallback() {
     }
   }
 }
-
-// Anropa loadDataWithFallback vid start för att läsa in data
-loadDataWithFallback();
 
 module.exports = {
   loadGtfsData,
