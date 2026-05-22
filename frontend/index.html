@@ -448,6 +448,11 @@
       "OpenStreetMap": L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; OpenStreetMap contributors'
       }),
+      "Mörkt (CartoDB)": L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+        subdomains: 'abcd',
+        maxZoom: 19
+      }),
       "OpenTopoMap": L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; OpenTopoMap contributors'
       }),
@@ -459,8 +464,11 @@
       })
     };
 
-    const savedLayer = localStorage.getItem('preferredMapLayer') || "OpenStreetMap";
-    baseMaps[savedLayer].addTo(map);
+    // Välj starttema baserat på sparad inställning eller systempreferens
+    const prefersDarkNow = document.documentElement.getAttribute('data-theme') === 'dark';
+    const defaultLayer = prefersDarkNow ? "Mörkt (CartoDB)" : "OpenStreetMap";
+    const savedLayer = localStorage.getItem('preferredMapLayer') || defaultLayer;
+    baseMaps[savedLayer in baseMaps ? savedLayer : defaultLayer].addTo(map);
 
     const layerControl = L.control.layers(baseMaps, null, { position: 'topright' }).addTo(map);
     const layerTitle = document.createElement('div');
@@ -512,6 +520,14 @@
           link.innerHTML = dark ? sunIcon : moonIcon;
           link.title = dark ? 'Byt till ljust läge' : 'Byt till mörkt läge';
           try { localStorage.setItem('xtrafik-theme', dark ? 'dark' : 'light'); } catch (_) {}
+          // Byt kartlager om inget lager sparats manuellt
+          const userChosen = localStorage.getItem('preferredMapLayer');
+          if (!userChosen || userChosen === 'OpenStreetMap' || userChosen === 'Mörkt (CartoDB)') {
+            const targetLayer = dark ? 'Mörkt (CartoDB)' : 'OpenStreetMap';
+            map.eachLayer(l => { if (l._url) map.removeLayer(l); });
+            baseMaps[targetLayer].addTo(map);
+            localStorage.setItem('preferredMapLayer', targetLayer);
+          }
         });
         return container;
       }
