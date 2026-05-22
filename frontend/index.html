@@ -175,8 +175,74 @@
       overscroll-behavior: contain;
     }
 
+    /* ── Mobile filter FAB ──────────────────────────────────────── */
+    .filter-fab {
+      display: none;
+      position: fixed;
+      bottom: 48px;
+      right: var(--sp-4);
+      z-index: 1000;
+    }
+    .filter-fab-btn {
+      width: 48px;
+      height: 48px;
+      background: var(--color-accent);
+      color: white;
+      border: none;
+      border-radius: 50%;
+      box-shadow: 0 3px 14px oklch(0% 0 0 / 0.28);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background-color 120ms ease-out, transform 100ms ease-out;
+      position: relative;
+    }
+    .filter-fab-btn:hover  { background: var(--color-accent-hover); }
+    .filter-fab-btn:active { transform: scale(0.93); }
+    .filter-fab-btn.has-filter::after {
+      content: '';
+      position: absolute;
+      top: 9px; right: 9px;
+      width: 8px; height: 8px;
+      background: oklch(62% 0.19 25);
+      border-radius: 50%;
+      border: 2px solid white;
+    }
+
+    /* ── Mobile filter sheet ────────────────────────────────────── */
+    .filter-sheet {
+      display: none;
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      background: var(--color-surface);
+      border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+      box-shadow: 0 -4px 24px oklch(0% 0 0 / 0.15);
+      padding: var(--sp-2) var(--sp-4) calc(var(--sp-5) + env(safe-area-inset-bottom, 0px));
+      z-index: 1001;
+      transform: translateY(100%);
+      transition: transform 280ms cubic-bezier(0.32, 0.72, 0, 1);
+    }
+    .filter-sheet.open { transform: translateY(0); }
+    .filter-sheet-handle {
+      width: 36px; height: 4px;
+      background: var(--color-border);
+      border-radius: 2px;
+      margin: 0 auto var(--sp-3);
+    }
+
+    /* ── Mobile overrides ───────────────────────────────────────── */
     @media (max-width: 600px) {
       .legend { display: none; }
+      .filter-control { display: none !important; }
+      .filter-fab, .filter-sheet { display: block; }
+      /* Dölj "Kartstilar"-etiketten i lagerkontrollen */
+      .leaflet-control-layers .panel-label { display: none; }
+      /* Större touch-yta för lokalisera-knappen */
+      .locate-control a {
+        width: 36px !important;
+        height: 36px !important;
+      }
     }
     .legend::-webkit-scrollbar { width: 4px; }
     .legend::-webkit-scrollbar-track { background: transparent; }
@@ -282,6 +348,27 @@
 </head>
 <body>
   <div id="map"></div>
+
+  <!-- Mobilt filter: FAB-knapp + bottom sheet -->
+  <div class="filter-fab">
+    <button class="filter-fab-btn" id="filterFabBtn" aria-label="Filtrera bussar" title="Filtrera bussar">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="4" y1="6" x2="20" y2="6"/>
+        <line x1="8" y1="12" x2="16" y2="12"/>
+        <line x1="11" y1="18" x2="13" y2="18"/>
+      </svg>
+    </button>
+  </div>
+  <div class="filter-sheet" id="filterSheet">
+    <div class="filter-sheet-handle"></div>
+    <div class="panel-label">Filtrera efter linje</div>
+    <input class="filter-input" type="text" id="lineFilterMobile"
+           placeholder="Linjenummer, t.ex. 1" autocomplete="off" inputmode="numeric"/>
+    <div class="filter-buttons" style="margin-top:var(--sp-2);">
+      <button id="applyFilterMobile" class="btn-primary">Sök</button>
+      <button id="clearFilterMobile" class="btn-ghost">Rensa</button>
+    </div>
+  </div>
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
   <script>
     const map = L.map('map').setView([60.6749, 17.1413], 10);
@@ -415,23 +502,85 @@
 
     document.getElementById('applyFilter').addEventListener('click', () => {
       activeFilter = document.getElementById('lineFilter').value.trim();
+      updateFabBadge();
       fetchData();
     });
 
     document.getElementById('clearFilter').addEventListener('click', () => {
       activeFilter = '';
       document.getElementById('lineFilter').value = '';
+      updateFabBadge();
       fetchData();
     });
 
     document.getElementById('lineFilter').addEventListener('keydown', e => {
       if (e.key === 'Enter') {
         activeFilter = e.target.value.trim();
+        updateFabBadge();
         fetchData();
       }
     });
 
     document.querySelector('.filter-control').addEventListener('mousedown', e => e.stopPropagation());
+
+    // ── Mobilt filter (FAB + bottom sheet) ──────────────────────
+    const filterFabBtn = document.getElementById('filterFabBtn');
+    const filterSheet  = document.getElementById('filterSheet');
+    const lineFilterMobile = document.getElementById('lineFilterMobile');
+
+    function updateFabBadge() {
+      filterFabBtn.classList.toggle('has-filter', activeFilter !== '');
+    }
+
+    function openFilterSheet() {
+      filterSheet.classList.add('open');
+      lineFilterMobile.value = activeFilter;
+      setTimeout(() => lineFilterMobile.focus(), 80);
+    }
+
+    function closeFilterSheet() {
+      filterSheet.classList.remove('open');
+    }
+
+    filterFabBtn.addEventListener('click', () => {
+      filterSheet.classList.contains('open') ? closeFilterSheet() : openFilterSheet();
+    });
+
+    document.getElementById('applyFilterMobile').addEventListener('click', () => {
+      activeFilter = lineFilterMobile.value.trim();
+      document.getElementById('lineFilter').value = activeFilter;
+      updateFabBadge();
+      closeFilterSheet();
+      fetchData();
+    });
+
+    document.getElementById('clearFilterMobile').addEventListener('click', () => {
+      activeFilter = '';
+      lineFilterMobile.value = '';
+      document.getElementById('lineFilter').value = '';
+      updateFabBadge();
+      closeFilterSheet();
+      fetchData();
+    });
+
+    lineFilterMobile.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        activeFilter = e.target.value.trim();
+        document.getElementById('lineFilter').value = activeFilter;
+        updateFabBadge();
+        closeFilterSheet();
+        fetchData();
+      }
+    });
+
+    // Stäng sheet vid tryck utanför
+    document.addEventListener('click', e => {
+      if (filterSheet.classList.contains('open') &&
+          !filterSheet.contains(e.target) &&
+          !filterFabBtn.contains(e.target)) {
+        closeFilterSheet();
+      }
+    });
 
     // ── Direction arrow ──────────────────────────────────────────
     function createDirectionMarker(lat, lon, bearing, color) {
@@ -557,11 +706,14 @@
           return v;
         });
 
+        // Linje 44 = X-trafiks kod för tomkörning (ej i trafik) – dölj dessa
+        const activeVehicles = vehicles.filter(v => v.busNumber !== '44');
+
         const filtered = activeFilter
-          ? vehicles.filter(v =>
+          ? activeVehicles.filter(v =>
               v.busNumber?.startsWith(activeFilter) || v.routeId === activeFilter
             )
-          : vehicles;
+          : activeVehicles;
 
         info.update(filtered.length, activeFilter !== '');
 
