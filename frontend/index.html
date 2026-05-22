@@ -214,11 +214,11 @@
 
     // Få en färg för busslinje - prioriterar GTFS-färgkod
     function getBusColor(busNumber, routeColor) {
-      // Om vi har en GTFS-färgkod direkt från API:et, använd den (prioritera)
-      if (routeColor && routeColor.startsWith('#')) {
+      // Använd GTFS-färg om den finns och inte är svart (#000000 betyder "ingen färg" i X-trafiks data)
+      if (routeColor && routeColor.startsWith('#') && routeColor !== '#000000') {
         return routeColor;
       }
-      // Annars, använd fördefinierad färg eller fallback
+      // Annars, använd fördefinierad färg per linje eller X-trafiks blå som fallback
       return busColors[busNumber] || busColors['default'];
     }
     
