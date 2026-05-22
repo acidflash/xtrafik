@@ -145,6 +145,95 @@ app.get('/api/gtfs-status', apiLimiter, (req, res) => {
   }
 });
 
+// ── Cache för Samtrafikens GTFS-RT (minskar externa API-anrop) ───
+const CACHE_TTL = 8000; // 8 sekunder
+let _cache = { vehicles: null, timestamp: 0, inflight: null };
+
+async function fetchVehiclesFromSamtrafiken() {
+  const now = Date.now();
+
+  // Returnera cache om den är giltig
+  if (_cache.vehicles && (now - _cache.timestamp) < CACHE_TTL) {
+    return _cache.vehicles;
+  }
+
+  // Vänta på pågående anrop istället för att starta ett nytt
+  if (_cache.inflight) return _cache.inflight;
+
+  _cache.inflight = (async () => {
+    const response = await fetch(
+      `https://opendata.samtrafiken.se/gtfs-rt/xt/VehiclePositions.pb?key=${API_KEY}`,
+      { headers: { 'Accept-Encoding': 'gzip, deflate' } }
+    );
+
+    if (!response.ok) {
+      let errorBody = '';
+      try { errorBody = await response.text(); } catch (_) {}
+      console.error(`API-fel: ${response.status} ${response.statusText}`, errorBody.substring(0, 200));
+      throw new Error(`Fel vid hämtning från API: ${response.status} ${response.statusText}`);
+    }
+
+    const buffer = await response.arrayBuffer();
+    if (buffer.byteLength === 0) throw new Error('API returnerade tom data');
+
+    const feed = transit_realtime.FeedMessage.decode(new Uint8Array(buffer));
+
+    const vehicles = feed.entity
+      .filter(entity => entity && entity.vehicle && entity.vehicle.position)
+      .map(entity => {
+        const vehicle = entity.vehicle;
+        const vehicleId = vehicle.vehicle && vehicle.vehicle.id ? vehicle.vehicle.id : 'unknown';
+        const routeId = vehicle.trip ? (vehicle.trip.routeId || vehicle.trip.route_id || null) : null;
+        const tripId  = vehicle.trip ? (vehicle.trip.tripId  || vehicle.trip.trip_id  || null) : null;
+
+        let busNumber = null;
+        let resolvedRouteId = routeId;
+        if (routeId) busNumber = gtfsLoader.getBusNumberFromRouteId(routeId);
+        if (!busNumber && tripId) {
+          busNumber = gtfsLoader.getBusNumberFromTripId(tripId);
+          if (!resolvedRouteId) {
+            resolvedRouteId = gtfsLoader.getTripMap()[tripId] || null;
+          }
+        }
+
+        return {
+          id: vehicleId,
+          vehicle: { id: vehicleId },
+          position: vehicle.position,
+          timestamp: vehicle.timestamp,
+          routeId,
+          trip: vehicle.trip || null,
+          busNumber: busNumber || 'Okänt',
+          routeColor:     resolvedRouteId ? gtfsLoader.getRouteColorFromRouteId(resolvedRouteId)     : '#1c65b0',
+          routeTextColor: resolvedRouteId ? gtfsLoader.getRouteTextColorFromRouteId(resolvedRouteId) : '#FFFFFF',
+          routeLongName:  resolvedRouteId ? gtfsLoader.getRouteLongNameFromRouteId(resolvedRouteId)  : null,
+          routeInfo:      resolvedRouteId ? gtfsLoader.getRouteInfoFromRouteId(resolvedRouteId)      : null,
+        };
+      });
+
+    _cache = { vehicles, timestamp: Date.now(), inflight: null };
+    console.log(`Samtrafiken: hämtade ${vehicles.length} fordon (cachas ${CACHE_TTL / 1000} s)`);
+    return vehicles;
+  })();
+
+  _cache.inflight.catch(() => { _cache.inflight = null; });
+  return _cache.inflight;
+}
+
+// ── Version-endpoint ──────────────────────────────────────────────
+app.get('/api/version', (req, res) => {
+  try {
+    const versionFile = path.resolve(__dirname, 'version.json');
+    if (fs.existsSync(versionFile)) {
+      res.json(JSON.parse(fs.readFileSync(versionFile, 'utf8')));
+    } else {
+      res.json({ version: 'dev' });
+    }
+  } catch (_) {
+    res.json({ version: 'unknown' });
+  }
+});
+
 // API-endpoint för fordonshämtning
 app.get('/api/vehicles', apiLimiter, async (req, res) => {
   try {
@@ -165,81 +254,8 @@ app.get('/api/vehicles', apiLimiter, async (req, res) => {
       }
     }
 
-    const response = await fetch(`https://opendata.samtrafiken.se/gtfs-rt/xt/VehiclePositions.pb?key=${API_KEY}`, {
-      headers: {
-        'Accept-Encoding': 'gzip, deflate'
-      }
-    });
-    
-    if (!response.ok) {
-      console.error(`API-fel: ${response.status} ${response.statusText}`);
-      
-      let errorBody = 'Kunde inte läsa felmeddelande';
-      try {
-        errorBody = await response.text();
-        console.error('API svarade med:', errorBody.substring(0, 200));
-      } catch (e) {
-        console.error('Kunde inte läsa svarskropp');
-      }
-      
-      throw new Error(`Fel vid hämtning från API: ${response.status} ${response.statusText}`);
-    }
-    
-    const buffer = await response.arrayBuffer();
-    
-    if (buffer.byteLength === 0) {
-      throw new Error('API returnerade tom data');
-    }
-    
-    // Avkoda GTFS-data
-    const feed = transit_realtime.FeedMessage.decode(new Uint8Array(buffer));
+    const vehicles = await fetchVehiclesFromSamtrafiken();
 
-    const vehicles = feed.entity
-      .filter(entity => entity && entity.vehicle && entity.vehicle.position)
-      .map(entity => {
-        const vehicle = entity.vehicle;
-        const vehicleId = vehicle.vehicle && vehicle.vehicle.id ? vehicle.vehicle.id : 'unknown';
-        // Protobufjs dekoderar till camelCase – stöd båda formaten
-        const routeId = vehicle.trip ? (vehicle.trip.routeId  || vehicle.trip.route_id  || null) : null;
-        const tripId  = vehicle.trip ? (vehicle.trip.tripId   || vehicle.trip.trip_id   || null) : null;
-
-        // Slå upp bussnummer och färger från GTFS-datan
-        // Prioritet: route_id direkt → trip_id → fallback
-        let busNumber = null;
-        let resolvedRouteId = routeId;
-        if (routeId) {
-          busNumber = gtfsLoader.getBusNumberFromRouteId(routeId);
-        }
-        if (!busNumber && tripId) {
-          busNumber = gtfsLoader.getBusNumberFromTripId(tripId);
-          // Hämta även route_id via trip om vi inte hade det direkt
-          if (!resolvedRouteId) {
-            const tripMap = gtfsLoader.getTripMap();
-            resolvedRouteId = tripMap[tripId] || null;
-          }
-        }
-
-        const routeColor     = resolvedRouteId ? gtfsLoader.getRouteColorFromRouteId(resolvedRouteId)     : '#1c65b0';
-        const routeTextColor = resolvedRouteId ? gtfsLoader.getRouteTextColorFromRouteId(resolvedRouteId) : '#FFFFFF';
-        const routeLongName  = resolvedRouteId ? gtfsLoader.getRouteLongNameFromRouteId(resolvedRouteId)  : null;
-        const routeInfo      = resolvedRouteId ? gtfsLoader.getRouteInfoFromRouteId(resolvedRouteId)      : null;
-
-        return {
-          id: vehicleId,
-          // Bugg #1: inkludera vehicle-objekt så frontend kan nå fordons-ID
-          vehicle: { id: vehicleId },
-          position: vehicle.position,
-          timestamp: vehicle.timestamp,
-          routeId,
-          trip: vehicle.trip || null,
-          busNumber: busNumber || 'Okänt',
-          routeColor:    routeColor    || '#1c65b0',
-          routeTextColor: routeTextColor || '#FFFFFF',
-          routeLongName,
-          routeInfo
-        };
-      });
-    
     // Filtrera på bounding box om angiven
     const result = bboxFilter
       ? vehicles.filter(v => {
@@ -249,7 +265,7 @@ app.get('/api/vehicles', apiLimiter, async (req, res) => {
         })
       : vehicles;
 
-    console.log(`Skickar ${result.length}${bboxFilter ? `/${vehicles.length}` : ''} fordon till klienten`);
+    console.log(`Skickar ${result.length}${bboxFilter ? `/${vehicles.length}` : ''} fordon (cache ${Date.now() - _cache.timestamp} ms gammal)`);
     res.json(result);
     
   } catch (error) {

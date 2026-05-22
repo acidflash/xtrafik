@@ -263,11 +263,32 @@
       font-size: 11px;
       color: var(--color-text-muted);
       transition: background-color 200ms ease-out, color 200ms ease-out;
+      min-width: 180px;
     }
     .update-indicator.flash {
       background: oklch(96% 0.04 90 / 0.95);
       color: var(--color-text);
     }
+
+    /* ── Versionsstämpel ────────────────────────────────────────── */
+    #versionBadge {
+      position: fixed;
+      bottom: 2px;
+      right: 4px;
+      font-size: 9px;
+      color: oklch(55% 0.005 260);
+      background: oklch(99% 0.005 260 / 0.75);
+      padding: 1px 5px;
+      border-radius: 3px;
+      pointer-events: none;
+      z-index: 1000;
+      font-family: inherit;
+      backdrop-filter: blur(2px);
+    }
+
+    /* ── Linjemarkering (dimma ej-valda bussar) ─────────────────── */
+    .bus-icon-new { transition: opacity 200ms ease-out, filter 200ms ease-out; }
+    .bus-icon-new.dimmed { opacity: 0.15; filter: grayscale(80%); }
 
     /* ── Popup ──────────────────────────────────────────────────── */
     .leaflet-popup-content-wrapper {
@@ -355,6 +376,7 @@
 </head>
 <body>
   <div id="map"></div>
+  <div id="versionBadge">Version: –</div>
 
   <!-- Mobilt filter: FAB-knapp + bottom sheet -->
   <div class="filter-fab">
@@ -443,10 +465,13 @@
     // ── State ────────────────────────────────────────────────────
     let markersGroup = L.layerGroup().addTo(map);
     let markersByRoute = {};
-    // Animerade markörer: vehicleId → { marker, animFrame, lat, lng }
-    let vehicleMarkers = {};
+    let vehicleMarkers  = {};   // vehicleId → { marker, animFrame, lat, lng, seen }
+    let vehicleRouteMap = {};   // vehicleId → routeKey (för linjemarkering)
     let legend = L.control({ position: 'bottomright' });
-    let activeFilter = '';
+    let activeFilter     = '';
+    let highlightedRoute = null;
+    let isFetching       = false;
+    let nextFetchAt      = 0;
     let busLines = new Set();
     let moveDebounce = null;
 
@@ -692,14 +717,45 @@
     function setLastUpdatedTime() {
       const el = document.querySelector('.update-indicator');
       if (!el) return;
-      const now = new Date().toLocaleTimeString('sv-SE', {
+      el.dataset.lastUpdate = new Date().toLocaleTimeString('sv-SE', {
         hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
       });
-      el.textContent = `Senast uppdaterad: ${now}`;
     }
+
+    // Uppdatera nedräknings-/statusindikatorn varje sekund
+    setInterval(() => {
+      const el = document.querySelector('.update-indicator');
+      if (!el || el.classList.contains('flash')) return;
+      const secs = Math.max(0, Math.round((nextFetchAt - Date.now()) / 1000));
+      const last = el.dataset.lastUpdate || '';
+      el.textContent = last
+        ? `Om ${secs} s  ·  Senast: ${last}`
+        : 'Laddar…';
+    }, 1000);
+
+    // ── Linjemarkering ───────────────────────────────────────────
+    function applyHighlight(routeKey) {
+      highlightedRoute = routeKey;
+      Object.entries(vehicleMarkers).forEach(([id, entry]) => {
+        const el = entry.marker.getElement();
+        if (!el) return;
+        el.classList.toggle('dimmed', vehicleRouteMap[id] !== routeKey);
+      });
+    }
+
+    function clearHighlight() {
+      highlightedRoute = null;
+      Object.values(vehicleMarkers).forEach(entry => {
+        entry.marker.getElement()?.classList.remove('dimmed');
+      });
+    }
+
+    map.on('click', clearHighlight);
 
     // ── Main fetch ───────────────────────────────────────────────
     async function fetchData() {
+      if (isFetching) return;
+      isFetching = true;
       try {
         busLines.clear();
         markersByRoute = {};
@@ -858,19 +914,23 @@
           const existing = vehicleMarkers[vehicleId];
 
           if (existing) {
-            // Fordon redan på kartan — animera till ny position + uppdatera ikon
             animateMarker(existing, lat, lon);
             existing.marker.setIcon(busIcon);
             existing.marker.setPopupContent(popup);
             existing.seen = true;
           } else {
-            // Nytt fordon — skapa markör
             const marker = L.marker([lat, lon], { icon: busIcon, zIndexOffset: 1000 })
               .bindPopup(popup)
               .addTo(markersGroup);
+            // Klick på buss → markera hela linjen
+            marker.on('click', () => {
+              if (highlightedRoute === routeKey) clearHighlight();
+              else applyHighlight(routeKey);
+            });
             vehicleMarkers[vehicleId] = { marker, animFrame: null, lat, lng: lon, seen: true };
           }
 
+          vehicleRouteMap[vehicleId] = routeKey;
           markersByRoute[routeKey].push(vehicleMarkers[vehicleId].marker);
         });
 
@@ -889,9 +949,20 @@
         updateLegend(busLines);
         setLastUpdatedTime();
 
+        // Återapplicera linjemarkering om en linje var vald
+        if (highlightedRoute) applyHighlight(highlightedRoute);
+
+        // Smart startvy: om inga fordon i vy och ingen aktiv filter,
+        // zooma ut till hela regionen första gången
+        if (filtered.length === 0 && !activeFilter && Object.keys(vehicleMarkers).length === 0) {
+          map.setView([60.6749, 17.1413], 10);
+        }
+
       } catch (err) {
         info.update(null, false);
         info._div.innerHTML += '<br><span style="color:#c0392b;font-size:12px;">Fel vid hämtning av data</span>';
+      } finally {
+        isFetching = false;
       }
     }
 
@@ -901,9 +972,11 @@
         if (e.animFrame) cancelAnimationFrame(e.animFrame);
         markersGroup.removeLayer(e.marker);
       });
-      vehicleMarkers = {};
-      markersByRoute = {};
+      vehicleMarkers  = {};
+      vehicleRouteMap = {};
+      markersByRoute  = {};
       busLines.clear();
+      clearHighlight();
     }
 
     // ── Rörelse-lyssnare (debounce 400 ms) ──────────────────────
@@ -916,32 +989,52 @@
     (function init() {
       info.update(null, false, true);
 
-      if (!navigator.geolocation) {
+      // Hämta och visa versionen
+      fetch('/api/version').then(r => r.json()).then(v => {
+        const el = document.getElementById('versionBadge');
+        if (el) el.textContent = `Version: ${v.version}`;
+      }).catch(() => {});
+
+      const INTERVAL = 15000;
+
+      function scheduledFetch() {
+        flashUpdateIndicator();
+        nextFetchAt = Date.now() + INTERVAL;
         fetchData();
-        setInterval(() => { flashUpdateIndicator(); fetchData(); }, 15000);
+      }
+
+      function startPolling() {
+        nextFetchAt = Date.now() + INTERVAL;
+        setInterval(scheduledFetch, INTERVAL);
+      }
+
+      if (!navigator.geolocation) {
+        nextFetchAt = Date.now() + INTERVAL;
+        fetchData();
+        startPolling();
         return;
       }
 
       // Timeout: om geolok tar > 2 s, starta ändå med standardvy
       let started = false;
       const fallback = setTimeout(() => {
-        if (!started) { started = true; fetchData(); }
+        if (!started) { started = true; nextFetchAt = Date.now() + INTERVAL; fetchData(); }
       }, 2000);
 
       navigator.geolocation.getCurrentPosition(
         pos => {
           clearTimeout(fallback);
           map.setView([pos.coords.latitude, pos.coords.longitude], 14);
-          if (!started) { started = true; fetchData(); }
+          if (!started) { started = true; nextFetchAt = Date.now() + INTERVAL; fetchData(); }
         },
         () => {
           clearTimeout(fallback);
-          if (!started) { started = true; fetchData(); }
+          if (!started) { started = true; nextFetchAt = Date.now() + INTERVAL; fetchData(); }
         },
         { timeout: 8000, maximumAge: 60000 }
       );
 
-      setInterval(() => { flashUpdateIndicator(); fetchData(); }, 15000);
+      startPolling();
     })();
   </script>
 </body>
