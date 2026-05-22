@@ -443,10 +443,47 @@
     // ── State ────────────────────────────────────────────────────
     let markersGroup = L.layerGroup().addTo(map);
     let markersByRoute = {};
+    // Animerade markörer: vehicleId → { marker, animFrame, lat, lng }
+    let vehicleMarkers = {};
     let legend = L.control({ position: 'bottomright' });
     let activeFilter = '';
     let busLines = new Set();
     let moveDebounce = null;
+
+    // ── Positionsanimering ───────────────────────────────────────
+    // Interpolerar en markör från nuvarande position till ny position
+    // under ~14 s (lite kortare än poll-intervallet på 15 s).
+    function animateMarker(entry, toLat, toLng) {
+      if (entry.animFrame) cancelAnimationFrame(entry.animFrame);
+
+      const fromLat = entry.lat;
+      const fromLng = entry.lng;
+      const dist = Math.abs(toLat - fromLat) + Math.abs(toLng - fromLng);
+
+      // Hoppa direkt om bussen teleporterat (>500 m ungefär)
+      if (dist > 0.005) {
+        entry.marker.setLatLng([toLat, toLng]);
+        entry.lat = toLat;
+        entry.lng = toLng;
+        return;
+      }
+
+      const DURATION = 14000; // ms
+      const startTime = performance.now();
+
+      function step(now) {
+        const t = Math.min((now - startTime) / DURATION, 1);
+        // ease-out cubic
+        const e = 1 - Math.pow(1 - t, 3);
+        const lat = fromLat + (toLat - fromLat) * e;
+        const lng = fromLng + (toLng - fromLng) * e;
+        entry.marker.setLatLng([lat, lng]);
+        if (t < 1) entry.animFrame = requestAnimationFrame(step);
+        else { entry.lat = toLat; entry.lng = toLng; entry.animFrame = null; }
+      }
+
+      entry.animFrame = requestAnimationFrame(step);
+    }
 
     // ── Colour map (fallback när GTFS saknar färger) ─────────────
     const busColors = {
@@ -510,6 +547,7 @@
     document.getElementById('applyFilter').addEventListener('click', () => {
       activeFilter = document.getElementById('lineFilter').value.trim();
       updateFabBadge();
+      clearAllMarkers();
       fetchData();
     });
 
@@ -517,6 +555,7 @@
       activeFilter = '';
       document.getElementById('lineFilter').value = '';
       updateFabBadge();
+      clearAllMarkers();
       fetchData();
     });
 
@@ -524,6 +563,7 @@
       if (e.key === 'Enter') {
         activeFilter = e.target.value.trim();
         updateFabBadge();
+        clearAllMarkers();
         fetchData();
       }
     });
@@ -557,6 +597,7 @@
       activeFilter = lineFilterMobile.value.trim();
       document.getElementById('lineFilter').value = activeFilter;
       updateFabBadge();
+      clearAllMarkers();
       closeFilterSheet();
       fetchData();
     });
@@ -566,6 +607,7 @@
       lineFilterMobile.value = '';
       document.getElementById('lineFilter').value = '';
       updateFabBadge();
+      clearAllMarkers();
       closeFilterSheet();
       fetchData();
     });
@@ -575,6 +617,7 @@
         activeFilter = e.target.value.trim();
         document.getElementById('lineFilter').value = activeFilter;
         updateFabBadge();
+        clearAllMarkers();
         closeFilterSheet();
         fetchData();
       }
@@ -658,7 +701,6 @@
     // ── Main fetch ───────────────────────────────────────────────
     async function fetchData() {
       try {
-        markersGroup.clearLayers();
         busLines.clear();
         markersByRoute = {};
 
@@ -812,11 +854,36 @@
             iconAnchor: [ICON_SZ / 2, ICON_SZ / 2]
           });
 
-          const marker = L.marker([lat, lon], { icon: busIcon, zIndexOffset: 1000 })
-            .bindPopup(popup)
-            .addTo(markersGroup);
+          const vehicleId = vehicle.vehicle?.id || `${lat},${lon}`;
+          const existing = vehicleMarkers[vehicleId];
 
-          markersByRoute[routeKey].push(marker);
+          if (existing) {
+            // Fordon redan på kartan — animera till ny position + uppdatera ikon
+            animateMarker(existing, lat, lon);
+            existing.marker.setIcon(busIcon);
+            existing.marker.setPopupContent(popup);
+            existing.seen = true;
+          } else {
+            // Nytt fordon — skapa markör
+            const marker = L.marker([lat, lon], { icon: busIcon, zIndexOffset: 1000 })
+              .bindPopup(popup)
+              .addTo(markersGroup);
+            vehicleMarkers[vehicleId] = { marker, animFrame: null, lat, lng: lon, seen: true };
+          }
+
+          markersByRoute[routeKey].push(vehicleMarkers[vehicleId].marker);
+        });
+
+        // Ta bort markörer för fordon som försvunnit från vyn
+        Object.keys(vehicleMarkers).forEach(id => {
+          const entry = vehicleMarkers[id];
+          if (!entry.seen) {
+            if (entry.animFrame) cancelAnimationFrame(entry.animFrame);
+            markersGroup.removeLayer(entry.marker);
+            delete vehicleMarkers[id];
+          } else {
+            entry.seen = false; // återställ inför nästa runda
+          }
         });
 
         updateLegend(busLines);
@@ -826,6 +893,17 @@
         info.update(null, false);
         info._div.innerHTML += '<br><span style="color:#c0392b;font-size:12px;">Fel vid hämtning av data</span>';
       }
+    }
+
+    // ── Rensa alla markörer (vid stor vyändring / filterändring) ──
+    function clearAllMarkers() {
+      Object.values(vehicleMarkers).forEach(e => {
+        if (e.animFrame) cancelAnimationFrame(e.animFrame);
+        markersGroup.removeLayer(e.marker);
+      });
+      vehicleMarkers = {};
+      markersByRoute = {};
+      busLines.clear();
     }
 
     // ── Rörelse-lyssnare (debounce 400 ms) ──────────────────────
