@@ -432,6 +432,7 @@
   <div class="filter-sheet" id="filterSheet">
     <div class="filter-sheet-handle"></div>
     <div class="panel-label">Filtrera efter linje</div>
+    <div id="mobileLineChips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;"></div>
     <input class="filter-input" type="text" id="lineFilterMobile"
            placeholder="Linjenummer, t.ex. 1" autocomplete="off" inputmode="numeric"/>
     <div class="filter-buttons" style="margin-top:var(--sp-2);">
@@ -846,6 +847,46 @@
       return              { sz: 36, busW: 22, busH: 12, arrW: 11, arrH: 10, numSz: 10 };
     }
 
+    // ── Mobila linjechips (bottom sheet) ────────────────────────
+    function updateMobileChips(busLinesSet) {
+      const container = document.getElementById('mobileLineChips');
+      if (!container || busLinesSet.size === 0) return;
+      container.innerHTML = '';
+      const sorted = [...busLinesSet].sort((a, b) => parseInt(a) - parseInt(b));
+      sorted.forEach(line => {
+        const color = getBusColor(line);
+        const isActive = activeFilter === line;
+        const chip = document.createElement('button');
+        chip.textContent = line;
+        chip.style.cssText = `
+          padding: 4px 12px; border-radius: 20px; border: none; cursor: pointer;
+          font-size: 13px; font-weight: 700;
+          background: ${isActive ? '#fff' : color};
+          color: ${isActive ? color : '#fff'};
+          box-shadow: ${isActive ? `0 0 0 2px ${color}` : '0 1px 4px rgba(0,0,0,0.25)'};
+          transition: transform 120ms ease-out, box-shadow 120ms;
+        `;
+        chip.addEventListener('touchstart', () => { chip.style.transform = 'scale(0.95)'; }, { passive: true });
+        chip.addEventListener('touchend', () => { chip.style.transform = ''; }, { passive: true });
+        chip.addEventListener('click', () => {
+          if (activeFilter === line) {
+            activeFilter = '';
+            document.getElementById('lineFilterMobile').value = '';
+            document.getElementById('lineFilter').value = '';
+          } else {
+            activeFilter = line;
+            document.getElementById('lineFilterMobile').value = line;
+            document.getElementById('lineFilter').value = line;
+          }
+          updateFabBadge();
+          clearAllMarkers();
+          fetchData();
+          document.getElementById('filterSheet').classList.remove('open');
+        });
+        container.appendChild(chip);
+      });
+    }
+
     // ── Legend ───────────────────────────────────────────────────
     function updateLegend(busLinesSet) {
       if (legend._map) map.removeControl(legend);
@@ -1172,6 +1213,7 @@
         });
 
         updateLegend(busLines);
+        updateMobileChips(busLines);
         setLastUpdatedTime();
 
         // Återapplicera linjemarkering om en linje var vald
@@ -1184,8 +1226,11 @@
         }
 
       } catch (err) {
+        console.warn('Fel vid datahämtning:', err);
         info.update(null, false);
-        info._div.innerHTML += '<br><span style="color:#c0392b;font-size:12px;">Fel vid hämtning av data</span>';
+        info._div.innerHTML += '<br><span style="color:#c0392b;font-size:12px;">Nätverksfel – försöker igen…</span>';
+        // Automatisk retry efter 5 sekunder vid fel
+        setTimeout(fetchData, 5000);
       } finally {
         isFetching = false;
       }
