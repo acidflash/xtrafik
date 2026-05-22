@@ -442,7 +442,32 @@
   </div>
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
   <script>
-    const map = L.map('map').setView([60.6749, 17.1413], 10);
+    // ── URL-hash-position (#lat,lon,zoom) ────────────────────────
+    function parseHash() {
+      const hash = location.hash.replace('#', '');
+      const parts = hash.split(',').map(Number);
+      if (parts.length === 3 && parts.every(isFinite) &&
+          parts[0] > 55 && parts[0] < 70 && parts[1] > 10 && parts[1] < 25 &&
+          parts[2] >= 5 && parts[2] <= 20) {
+        return { lat: parts[0], lon: parts[1], zoom: parts[2] };
+      }
+      return null;
+    }
+
+    const hashPos = parseHash();
+    const initCenter = hashPos ? [hashPos.lat, hashPos.lon] : [60.6749, 17.1413];
+    const initZoom   = hashPos ? hashPos.zoom : 10;
+    const map = L.map('map').setView(initCenter, initZoom);
+
+    // Uppdatera URL-hash när kartan rör sig (debounce 1 s)
+    let hashDebounce = null;
+    map.on('moveend zoomend', () => {
+      clearTimeout(hashDebounce);
+      hashDebounce = setTimeout(() => {
+        const c = map.getCenter();
+        location.replace(`#${c.lat.toFixed(5)},${c.lng.toFixed(5)},${map.getZoom()}`);
+      }, 1000);
+    });
 
     // ── Tema-återställning (måste ske innan kartlager väljs) ─────
     try {
@@ -1302,7 +1327,8 @@
           clearTimeout(fallback);
           const { latitude: lat, longitude: lon, accuracy: acc } = pos.coords;
           updateUserMarker(lat, lon, acc);
-          map.setView([lat, lon], 14);
+          // Om URL-hash finns, zooma INTE till position (respektera sparad vy)
+          if (!parseHash()) map.setView([lat, lon], 14);
           if (!started) { started = true; nextFetchAt = Date.now() + INTERVAL; fetchData(); }
           // Börja bevaka positionen kontinuerligt
           if (userWatchId === null) {
