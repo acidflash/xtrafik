@@ -577,6 +577,7 @@
 
     // ── Användarposition (blå prick) ─────────────────────────────
     let userMarker = null;
+    let userCircle = null;
     let userWatchId = null;
 
     function updateUserMarker(lat, lon, acc) {
@@ -595,6 +596,26 @@
       } else {
         userMarker.setLatLng([lat, lon]);
         userMarker.setIcon(userIcon);
+      }
+      // Noggrannhetscirkel (visas bara om acc > 30 m)
+      if (acc && acc > 30) {
+        if (!userCircle) {
+          userCircle = L.circle([lat, lon], {
+            radius: acc,
+            color: 'oklch(55% 0.20 260)',
+            fillColor: 'oklch(55% 0.20 260)',
+            fillOpacity: 0.06,
+            weight: 1,
+            opacity: 0.3,
+            interactive: false
+          }).addTo(map);
+        } else {
+          userCircle.setLatLng([lat, lon]);
+          userCircle.setRadius(acc);
+        }
+      } else if (userCircle) {
+        map.removeLayer(userCircle);
+        userCircle = null;
       }
     }
 
