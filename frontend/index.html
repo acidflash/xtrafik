@@ -296,17 +296,23 @@
     /* ── Versionsstämpel ────────────────────────────────────────── */
     #versionBadge {
       position: fixed;
-      bottom: 2px;
+      bottom: 20px;
       right: 4px;
       font-size: 9px;
-      color: oklch(55% 0.005 260);
-      background: oklch(99% 0.005 260 / 0.75);
-      padding: 1px 5px;
+      color: oklch(45% 0.005 260);
+      background: oklch(99% 0.005 260 / 0.82);
+      padding: 2px 6px;
       border-radius: 3px;
       pointer-events: none;
       z-index: 1000;
       font-family: inherit;
-      backdrop-filter: blur(2px);
+      backdrop-filter: blur(4px);
+      border: 1px solid oklch(85% 0.005 260 / 0.5);
+    }
+    [data-theme="dark"] #versionBadge {
+      color: oklch(60% 0.005 260);
+      background: oklch(18% 0.005 260 / 0.85);
+      border-color: oklch(35% 0.005 260 / 0.5);
     }
 
     /* ── Linjemarkering (dimma ej-valda bussar) ─────────────────── */
@@ -808,6 +814,26 @@
     });
 
     document.querySelector('.filter-control').addEventListener('mousedown', e => e.stopPropagation());
+
+    // Tangentbordsgenväg: / öppnar filter-input (undviker mobil)
+    document.addEventListener('keydown', e => {
+      if (e.key === '/' && !e.ctrlKey && !e.metaKey &&
+          document.activeElement.tagName !== 'INPUT') {
+        e.preventDefault();
+        const input = document.getElementById('lineFilter');
+        input?.focus();
+        input?.select();
+      }
+      if (e.key === 'Escape') {
+        activeFilter = '';
+        document.getElementById('lineFilter').value = '';
+        document.getElementById('lineFilterMobile').value = '';
+        updateFabBadge();
+        clearAllMarkers();
+        clearHighlight();
+        fetchData();
+      }
+    });
 
     // ── Mobilt filter (FAB + bottom sheet) ──────────────────────
     const filterFabBtn = document.getElementById('filterFabBtn');
