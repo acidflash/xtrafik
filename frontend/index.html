@@ -30,12 +30,29 @@
       --color-accent-hover: oklch(36% 0.14 260);
       --color-accent-ring:  oklch(65% 0.14 260 / 0.2);
 
+      /* Ljust läge (standard) */
       --color-text:        oklch(22% 0.01 260);
       --color-text-muted:  oklch(52% 0.01 260);
       --color-surface:     oklch(99% 0.005 260);
       --color-border:      oklch(88% 0.008 260);
       --color-row-divider: oklch(93% 0.005 260);
     }
+
+    /* ── Mörkt läge ──────────────────────────────────────────────── */
+    [data-theme="dark"] {
+      --color-text:        oklch(92% 0.01 260);
+      --color-text-muted:  oklch(62% 0.01 260);
+      --color-surface:     oklch(18% 0.01 260);
+      --color-border:      oklch(30% 0.01 260);
+      --color-row-divider: oklch(24% 0.01 260);
+      --shadow-panel: 0 2px 12px oklch(0% 0 0 / 0.4), 0 1px 3px oklch(0% 0 0 / 0.3);
+    }
+    [data-theme="dark"] .leaflet-bar a,
+    [data-theme="dark"] .leaflet-bar a:hover { background: oklch(22% 0.01 260); color: oklch(90% 0.01 260); border-color: oklch(35% 0.01 260); }
+    [data-theme="dark"] .leaflet-control-attribution { background: oklch(18% 0.01 260 / 0.85); color: oklch(60% 0.01 260); }
+    [data-theme="dark"] .leaflet-popup-content-wrapper,
+    [data-theme="dark"] .leaflet-popup-tip { background: oklch(22% 0.01 260); }
+    [data-theme="dark"] .stop-tooltip { background: oklch(22% 0.01 260); border-color: oklch(35% 0.01 260); color: oklch(90% 0.01 260); }
 
     *, *::before, *::after { box-sizing: border-box; }
 
@@ -370,7 +387,8 @@
     }
 
     /* ── Locate control ─────────────────────────────────────────── */
-    .locate-control a {
+    .locate-control a,
+    .dark-toggle-control a {
       width: 26px !important;
       height: 26px !important;
       display: flex !important;
@@ -380,7 +398,10 @@
       text-decoration: none;
       transition: color 120ms ease-out;
     }
-    .locate-control a:hover { color: var(--color-accent); }
+    .locate-control a:hover,
+    .dark-toggle-control a:hover { color: var(--color-accent); }
+    [data-theme="dark"] .locate-control a,
+    [data-theme="dark"] .dark-toggle-control a { color: oklch(80% 0.01 260); }
     .locate-control a.locating { color: var(--color-accent); animation: pulse-icon 1s ease-in-out infinite; }
     @keyframes pulse-icon { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
 
@@ -469,6 +490,42 @@
       }
     });
     new LocateControl().addTo(map);
+
+    // ── Mörkt läge-toggle ────────────────────────────────────────
+    const DarkControl = L.Control.extend({
+      options: { position: 'topleft' },
+      onAdd() {
+        const container = L.DomUtil.create('div', 'leaflet-bar leaflet-control dark-toggle-control');
+        const link = L.DomUtil.create('a', '', container);
+        link.href = '#';
+        link.title = 'Växla mörkt/ljust läge';
+        link.setAttribute('role', 'button');
+        link.setAttribute('aria-label', 'Växla mörkt/ljust läge');
+        const sunIcon = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>`;
+        const moonIcon = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`;
+        const isDark = () => document.documentElement.getAttribute('data-theme') === 'dark';
+        link.innerHTML = isDark() ? sunIcon : moonIcon;
+        L.DomEvent.on(link, 'click', L.DomEvent.stop);
+        L.DomEvent.on(link, 'click', () => {
+          const dark = !isDark();
+          document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+          link.innerHTML = dark ? sunIcon : moonIcon;
+          link.title = dark ? 'Byt till ljust läge' : 'Byt till mörkt läge';
+          try { localStorage.setItem('xtrafik-theme', dark ? 'dark' : 'light'); } catch (_) {}
+        });
+        return container;
+      }
+    });
+    // Återställ tema vid sidladdning (innan kontrollen renderas)
+    try {
+      const saved = localStorage.getItem('xtrafik-theme');
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      if (saved === 'dark' || (!saved && prefersDark)) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+      }
+    } catch (_) {}
+
+    new DarkControl().addTo(map);
 
     // ── Användarposition (blå prick) ─────────────────────────────
     let userMarker = null;
