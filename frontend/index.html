@@ -292,8 +292,8 @@
     }
     .update-indicator:hover { color: var(--color-accent); }
     .update-indicator.flash {
-      background: oklch(96% 0.04 90 / 0.95);
-      color: var(--color-text);
+      background: var(--color-surface);
+      color: var(--color-accent);
     }
 
     /* ── Countdown progress bar ─────────────────────────────────── */
@@ -1097,8 +1097,12 @@
     // Uppdatera nedräknings-/statusindikatorn varje sekund
     setInterval(() => {
       const el = document.querySelector('.update-indicator');
-      if (!el || el.classList.contains('flash')) return;
+      if (!el) return;
       const textEl = el.querySelector('.update-text') || el;
+      if (el.classList.contains('flash')) {
+        textEl.textContent = 'Uppdaterar…';
+        return;
+      }
       const secs = Math.max(0, Math.round((nextFetchAt - Date.now()) / 1000));
       const last = el.dataset.lastUpdate || '';
       textEl.textContent = last
