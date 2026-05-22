@@ -313,6 +313,8 @@ app.get('/api/vehicles', apiLimiter, async (req, res) => {
       : vehicles;
 
     console.log(`Skickar ${result.length}${bboxFilter ? `/${vehicles.length}` : ''} fordon (cache ${Date.now() - _cache.timestamp} ms gammal)`);
+    // Skicka totalt antal i header så frontend kan visa "X av Y"
+    res.set('X-Total-Count', String(vehicles.length));
     res.json(result);
     
   } catch (error) {

@@ -739,7 +739,7 @@
       this.update(0);
       return this._div;
     };
-    info.update = function (count, filtered = false, loading = false) {
+    info.update = function (count, filtered = false, loading = false, total = 0) {
       if (loading) {
         this._div.innerHTML = `
           <div class="panel-label">X-trafik Realtid</div>
@@ -751,10 +751,14 @@
           <div class="info-sub">${filtered ? 'Inga fordon på vald linje' : 'Inga fordon i vyn'}</div>
           <div class="info-sub" style="font-size:10px;margin-top:4px;color:var(--color-text-muted);">${filtered ? '' : 'Zooma ut eller panorera'}</div>`;
       } else if (count !== null) {
+        const totalNote = total > 0 && total !== count
+          ? `<div class="info-sub" style="font-size:10px;margin-top:2px;color:var(--color-text-muted);">av ${total} totalt</div>`
+          : '';
         this._div.innerHTML = `
           <div class="panel-label">X-trafik Realtid</div>
           <div class="info-count">${count}</div>
-          <div class="info-sub">fordon i vyn${filtered ? ' &nbsp;·&nbsp; filtrerat' : ''}</div>`;
+          <div class="info-sub">fordon i vyn${filtered ? ' &nbsp;·&nbsp; filtrerat' : ''}</div>
+          ${totalNote}`;
       } else {
         this._div.innerHTML = `
           <div class="panel-label">X-trafik Realtid</div>
@@ -1038,7 +1042,9 @@
           b.getNorth().toFixed(5), b.getEast().toFixed(5)
         ].join(',');
 
-        const data = await fetch(`/api/vehicles?bbox=${bbox}`).then(r => r.json());
+        const resp = await fetch(`/api/vehicles?bbox=${bbox}`);
+        const totalInSystem = parseInt(resp.headers.get('X-Total-Count') || '0');
+        const data = await resp.json();
 
         const vehicles = data.map(entity => {
           const v = { ...entity };
@@ -1085,7 +1091,7 @@
             )
           : activeVehicles;
 
-        info.update(filtered.length, activeFilter !== '');
+        info.update(filtered.length, activeFilter !== '', false, totalInSystem);
 
         filtered.forEach(vehicle => {
           if (!vehicle.position) return;
