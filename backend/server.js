@@ -185,22 +185,30 @@ app.get('/api/vehicles', apiLimiter, async (req, res) => {
       .map(entity => {
         const vehicle = entity.vehicle;
         const vehicleId = vehicle.vehicle && vehicle.vehicle.id ? vehicle.vehicle.id : 'unknown';
-        const routeId = vehicle.trip ? vehicle.trip.route_id : null;
-        const tripId  = vehicle.trip ? vehicle.trip.trip_id  : null;
+        // Protobufjs dekoderar till camelCase – stöd båda formaten
+        const routeId = vehicle.trip ? (vehicle.trip.routeId  || vehicle.trip.route_id  || null) : null;
+        const tripId  = vehicle.trip ? (vehicle.trip.tripId   || vehicle.trip.trip_id   || null) : null;
 
-        // Bugg #2: slå upp bussnummer och färger från GTFS-datan
+        // Slå upp bussnummer och färger från GTFS-datan
+        // Prioritet: route_id direkt → trip_id → fallback
         let busNumber = null;
+        let resolvedRouteId = routeId;
         if (routeId) {
           busNumber = gtfsLoader.getBusNumberFromRouteId(routeId);
         }
         if (!busNumber && tripId) {
           busNumber = gtfsLoader.getBusNumberFromTripId(tripId);
+          // Hämta även route_id via trip om vi inte hade det direkt
+          if (!resolvedRouteId) {
+            const tripMap = gtfsLoader.getTripMap();
+            resolvedRouteId = tripMap[tripId] || null;
+          }
         }
 
-        const routeColor    = routeId ? gtfsLoader.getRouteColorFromRouteId(routeId)    : '#1c65b0';
-        const routeTextColor = routeId ? gtfsLoader.getRouteTextColorFromRouteId(routeId) : '#FFFFFF';
-        const routeLongName  = routeId ? gtfsLoader.getRouteLongNameFromRouteId(routeId)  : null;
-        const routeInfo      = routeId ? gtfsLoader.getRouteInfoFromRouteId(routeId)      : null;
+        const routeColor     = resolvedRouteId ? gtfsLoader.getRouteColorFromRouteId(resolvedRouteId)     : '#1c65b0';
+        const routeTextColor = resolvedRouteId ? gtfsLoader.getRouteTextColorFromRouteId(resolvedRouteId) : '#FFFFFF';
+        const routeLongName  = resolvedRouteId ? gtfsLoader.getRouteLongNameFromRouteId(resolvedRouteId)  : null;
+        const routeInfo      = resolvedRouteId ? gtfsLoader.getRouteInfoFromRouteId(resolvedRouteId)      : null;
 
         return {
           id: vehicleId,
