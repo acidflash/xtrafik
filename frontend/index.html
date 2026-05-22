@@ -589,15 +589,15 @@
       }
     });
 
-    // ── Direction arrow (inbyggd i bussikonen) ───────────────────
-    function bearingArrow(bearing) {
-      if (!bearing) return '';
-      return `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;">
-        <svg width="11" height="11" viewBox="0 0 10 10" style="transform:rotate(${bearing}deg);flex-shrink:0;filter:drop-shadow(0 0 1px rgba(0,0,0,0.4));">
-          <polygon points="5,0.5 9.5,9.5 0.5,9.5" fill="rgba(255,255,255,0.92)"/>
-        </svg>
-      </div>`;
-    }
+    // ── Direction arrow – sticker ut från bussikonen ─────────────
+    // Ikonen har en 64×64 container. Bussrutan (40×22) är centrerad i
+    // containern (center = 32,32 = karmpositionen). Pilen roterar kring
+    // containerns centrum och sticker ut i körriktningen.
+    const ICON_SZ = 64;
+    const BUS_W = 40, BUS_H = 22;
+    const BUS_L = (ICON_SZ - BUS_W) / 2;   // 12
+    const BUS_T = (ICON_SZ - BUS_H) / 2;   // 21
+    const NUM_T = BUS_T - 12;              // 9
 
     // ── Legend ───────────────────────────────────────────────────
     function updateLegend(busLinesSet) {
@@ -777,20 +777,39 @@
 
           popup += `</div></div>`;
 
-          // Bus icon med inbyggd riktningspil
+          // Bus icon med utskjutande riktningspil
+          const arrowHtml = bearing ? `
+            <div style="position:absolute;inset:0;transform:rotate(${bearing}deg);pointer-events:none;z-index:5;">
+              <svg style="position:absolute;top:2px;left:50%;transform:translateX(-50%);"
+                   width="20" height="18" viewBox="0 0 20 18">
+                <polygon points="10,0 20,18 0,18"
+                         fill="${busColor}"
+                         stroke="white" stroke-width="3" stroke-linejoin="round"/>
+              </svg>
+            </div>` : '';
+
           const busIcon = L.divIcon({
             html: `
-              <div style="position:relative;">
-                <div style="width:40px;height:24px;background-color:${busColor};border:2px solid white;border-radius:6px;position:relative;box-shadow:0 2px 6px rgba(0,0,0,0.45);">
-                  ${bearingArrow(bearing)}
-                  <div style="position:absolute;width:6px;height:6px;border-radius:50%;background:#333;bottom:-3px;left:6px;"></div>
-                  <div style="position:absolute;width:6px;height:6px;border-radius:50%;background:#333;bottom:-3px;right:6px;"></div>
+              <div style="position:relative;width:${ICON_SZ}px;height:${ICON_SZ}px;">
+                ${arrowHtml}
+                <div style="position:absolute;left:${BUS_L}px;top:${BUS_T}px;
+                  width:${BUS_W}px;height:${BUS_H}px;background-color:${busColor};
+                  border:2px solid white;border-radius:6px;
+                  box-shadow:0 2px 8px rgba(0,0,0,0.5);z-index:10;">
+                  <div style="position:absolute;width:5px;height:5px;border-radius:50%;background:#222;bottom:-3px;left:7px;"></div>
+                  <div style="position:absolute;width:5px;height:5px;border-radius:50%;background:#222;bottom:-3px;right:7px;"></div>
                 </div>
-                <div style="position:absolute;top:-10px;left:50%;transform:translateX(-50%);background:white;color:black;border:2px solid black;border-radius:12px;padding:1px 6px;font-weight:bold;font-size:14px;z-index:1000;min-width:14px;text-align:center;box-shadow:0 0 4px rgba(0,0,0,0.8);">${displayNumber}</div>
+                <div style="position:absolute;top:${NUM_T}px;left:50%;transform:translateX(-50%);
+                  background:white;color:black;border:2px solid black;border-radius:12px;
+                  padding:1px 6px;font-weight:bold;font-size:14px;z-index:20;
+                  min-width:14px;text-align:center;box-shadow:0 0 4px rgba(0,0,0,0.8);
+                  white-space:nowrap;">
+                  ${displayNumber}
+                </div>
               </div>`,
             className: 'bus-icon-new',
-            iconSize: [40, 36],
-            iconAnchor: [20, 12]
+            iconSize: [ICON_SZ, ICON_SZ],
+            iconAnchor: [ICON_SZ / 2, ICON_SZ / 2]
           });
 
           const marker = L.marker([lat, lon], { icon: busIcon, zIndexOffset: 1000 })
