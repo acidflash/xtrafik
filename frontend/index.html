@@ -476,7 +476,7 @@
           } else {
             timestampValue = Math.floor(Date.now() / 1000); // Använd nuvarande tid som fallback
           }
-          const timestamp = new Date(parseInt(timestampValue) * 1000).toLocaleTimeString();
+          const timestamp = new Date(parseInt(timestampValue) * 1000).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
           
           // Bestäm vilket linjenummer som ska visas, prioritera i denna ordning:
           // 1. GTFS routeInfo.shortName (från routes.txt)
