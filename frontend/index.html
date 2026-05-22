@@ -467,7 +467,7 @@
     <div class="panel-label">Filtrera efter linje</div>
     <div id="mobileLineChips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;"></div>
     <input class="filter-input" type="text" id="lineFilterMobile"
-           placeholder="Linjenummer, t.ex. 1" autocomplete="off" inputmode="numeric"/>
+           placeholder="Linje, t.ex. 1 eller 1,2,3" autocomplete="off"/>
     <div class="filter-buttons" style="margin-top:var(--sp-2);">
       <button id="applyFilterMobile" class="btn-primary">Sök</button>
       <button id="clearFilterMobile" class="btn-ghost">Rensa</button>
@@ -769,6 +769,13 @@
       }
     }
 
+    // ── Compass direction från bearing-grader ───────────────────
+    function bearingToCompass(deg) {
+      if (!deg && deg !== 0) return null;
+      const dirs = ['N','NNO','NO','ONO','O','OSO','SO','SSO','S','SSV','SV','VSV','V','VNV','NV','NNV'];
+      return dirs[Math.round(((deg % 360) + 360) % 360 / 22.5) % 16];
+    }
+
     // ── Colour map (fallback när GTFS saknar färger) ─────────────
     const busColors = {
       '1':  '#00796B', '2':  '#D32F2F', '3':  '#7B1FA2',
@@ -831,7 +838,7 @@
       div.innerHTML = `
         <div class="panel-label">Filtrera efter linje</div>
         <input class="filter-input" type="text" id="lineFilter"
-               placeholder="Linjenummer, t.ex. 1" autocomplete="off" />
+               placeholder="Linje, t.ex. 1 eller 1,2,3" autocomplete="off" />
         <div class="filter-buttons">
           <button id="applyFilter" class="btn-primary">Sök</button>
           <button id="clearFilter" class="btn-ghost">Rensa</button>
@@ -1176,19 +1183,24 @@
         const OUT_OF_SERVICE = new Set(['44', '27']);
         const activeVehicles = vehicles.filter(v => !OUT_OF_SERVICE.has(v.busNumber));
 
-        const filtered = activeFilter
+        // Stöd för kommaseparerade filter, t.ex. "1,2,3"
+        const activeFilters = activeFilter
+          ? activeFilter.split(',').map(f => f.trim()).filter(Boolean)
+          : [];
+        const filtered = activeFilters.length > 0
           ? activeVehicles.filter(v =>
-              v.busNumber?.startsWith(activeFilter) || v.routeId === activeFilter
+              activeFilters.some(f => v.busNumber?.startsWith(f) || v.routeId === f)
             )
           : activeVehicles;
 
-        info.update(filtered.length, activeFilter !== '', false, totalInSystem);
+        info.update(filtered.length, activeFilters.length > 0, false, totalInSystem);
 
         filtered.forEach(vehicle => {
           if (!vehicle.position) return;
 
           const { latitude: lat, longitude: lon, speed: speedMs = 0, bearing = 0 } = vehicle.position;
-          const speedKmh = Math.round(speedMs * 3.6);
+          const speedKmh = Math.round((speedMs || 0) * 3.6);
+          const compassDir = bearing > 0 ? bearingToCompass(bearing) : null;
           const routeKey = vehicle.busNumber || 'okänd';
 
           if (!markersByRoute[routeKey]) markersByRoute[routeKey] = [];
@@ -1226,7 +1238,8 @@
             (vehicle.busNumber !== 'Okänt' ? vehicle.busNumber : null) ||
             'X-trafik';
 
-          const speedText = speedKmh > 0 ? `${speedKmh} km/h` : 'Stillastående';
+          // Hastighet: "Stillastående" under 3 km/h (GPS-brus)
+          const speedText = speedKmh >= 3 ? `${speedKmh} km/h` : 'Stillastående';
 
           // Popup
           let popup = `<div class="popup-wrapper">
@@ -1241,7 +1254,7 @@
           popup += `<div class="popup-body">
             <div class="popup-row">
               <span class="popup-row-label">Hastighet</span>
-              <span class="popup-row-value">${speedText}</span>
+              <span class="popup-row-value">${speedText}${compassDir && speedKmh >= 3 ? ` <span style="color:var(--color-text-muted);font-weight:400;">${compassDir}</span>` : ''}</span>
             </div>
             <div class="popup-row">
               <span class="popup-row-label">GPS-tid</span>
