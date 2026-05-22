@@ -19,6 +19,7 @@ const TRIPS_PATH = path.join(GTFS_EXTRACT_PATH, 'trips.txt');
 let routeMap = {}; // route_id -> route_short_name
 let routeInfoMap = {}; // route_id -> full route info (namn, färger, etc)
 let tripToRouteMap = {}; // trip_id -> route_id
+let tripHeadsignMap = {}; // trip_id -> trip_headsign (destinationstext)
 let blockToRouteMap = {}; // block_id -> route_id
 let agencyMap = {}; // agency_id -> agency_name
 
@@ -293,6 +294,7 @@ function parseTripsData() {
     const results = {};
     const blockResults = {};
     
+    const headsignResults = {};
     fs.createReadStream(path.join(GTFS_EXTRACT_PATH, 'trips.txt'))
       .pipe(csv())
       .on('data', (data) => {
@@ -300,11 +302,16 @@ function parseTripsData() {
         const tripId = data.trip_id;
         const routeId = data.route_id;
         const blockId = data.block_id;
-        
+
         if (tripId && routeId) {
           results[tripId] = routeId;
         }
-        
+
+        // Lagra trip_headsign (destinationstext) om den finns
+        if (tripId && data.trip_headsign) {
+          headsignResults[tripId] = data.trip_headsign.trim();
+        }
+
         // Om block_id finns, koppla den till route_id
         if (blockId && routeId) {
           blockResults[blockId] = routeId;
@@ -313,7 +320,9 @@ function parseTripsData() {
       .on('end', () => {
         console.log(`${Object.keys(results).length} resor lästes in`);
         console.log(`${Object.keys(blockResults).length} block-IDs lästes in`);
+        console.log(`${Object.keys(headsignResults).length} destinationstexter lästes in`);
         tripToRouteMap = results;
+        tripHeadsignMap = headsignResults;
         blockToRouteMap = blockResults;
         resolve({ trips: results, blocks: blockResults });
       })
@@ -373,6 +382,14 @@ function getRouteLongNameFromRouteId(routeId) {
 function getBusNumberFromTripId(tripId) {
   const routeId = tripToRouteMap[tripId];
   return routeId ? getBusNumberFromRouteId(routeId) : null;
+}
+
+/**
+ * Returnerar destinationstext (headsign) för ett trip_id
+ * Exempel: "Sjukhuset", "Centrum", "Valbo"
+ */
+function getTripHeadsignFromTripId(tripId) {
+  return tripHeadsignMap[tripId] || null;
 }
 
 /**
@@ -643,6 +660,7 @@ module.exports = {
   getBusNumberFromRouteId,
   getBusNumberFromTripId,
   getBusNumberFromBlockId,
+  getTripHeadsignFromTripId,
   getRouteMap: () => routeMap,
   getTripMap: () => tripToRouteMap,
   getBlockMap: () => blockToRouteMap,

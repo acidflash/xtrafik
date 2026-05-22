@@ -127,7 +127,7 @@
       font-size: 13px;
       font-family: inherit;
       color: var(--color-text);
-      background: white;
+      background: var(--color-surface);
       outline: none;
       transition: border-color 150ms ease-out, box-shadow 150ms ease-out;
     }
@@ -287,10 +287,37 @@
       color: var(--color-text-muted);
       transition: background-color 200ms ease-out, color 200ms ease-out;
       min-width: 180px;
+      cursor: pointer;
+      user-select: none;
     }
+    .update-indicator:hover { color: var(--color-accent); }
     .update-indicator.flash {
       background: oklch(96% 0.04 90 / 0.95);
       color: var(--color-text);
+    }
+
+    /* ── Countdown progress bar ─────────────────────────────────── */
+    .update-bar {
+      height: 2px;
+      background: var(--color-border);
+      border-radius: 1px;
+      margin-top: var(--sp-1);
+      overflow: hidden;
+    }
+    .update-bar-fill {
+      height: 100%;
+      background: var(--color-accent);
+      border-radius: 1px;
+      transform-origin: left;
+      transform: scaleX(1);
+      will-change: transform;
+    }
+    .update-bar-fill.animating {
+      animation: countdown-shrink 15s linear forwards;
+    }
+    @keyframes countdown-shrink {
+      from { transform: scaleX(1); }
+      to   { transform: scaleX(0); }
     }
 
     /* ── Versionsstämpel ────────────────────────────────────────── */
@@ -657,6 +684,7 @@
     let stopsVisible = false;
     let stopsFetching = false;
     let stopsFetchedBbox = '';
+    let isFirstFetch = true; // Spårar om detta är den allra första datahämtningen
 
     // ── Positionsanimering ───────────────────────────────────────
     // Interpolerar en markör från nuvarande position till ny position
@@ -1026,7 +1054,12 @@
     const updateIndicator = L.control({ position: 'bottomleft' });
     updateIndicator.onAdd = function () {
       const div = L.DomUtil.create('div', 'info update-indicator');
-      div.textContent = 'Laddar…';
+      div.title = 'Klicka för att uppdatera nu';
+      div.innerHTML = '<span class="update-text">Laddar…</span><div class="update-bar"><div class="update-bar-fill"></div></div>';
+      L.DomEvent.on(div, 'click', L.DomEvent.stop);
+      L.DomEvent.on(div, 'click', () => {
+        if (!isFetching) { nextFetchAt = Date.now() + 15000; fetchData(); }
+      });
       return div;
     };
     updateIndicator.addTo(map);
@@ -1036,6 +1069,14 @@
       if (!el) return;
       el.classList.add('flash');
       setTimeout(() => el.classList.remove('flash'), 800);
+      // Starta om progress-bar-animationen
+      const fill = el.querySelector('.update-bar-fill');
+      if (fill) {
+        fill.classList.remove('animating');
+        // Tvinga reflow så animationen startar om
+        void fill.offsetWidth;
+        fill.classList.add('animating');
+      }
     }
 
     function setLastUpdatedTime() {
@@ -1050,9 +1091,10 @@
     setInterval(() => {
       const el = document.querySelector('.update-indicator');
       if (!el || el.classList.contains('flash')) return;
+      const textEl = el.querySelector('.update-text') || el;
       const secs = Math.max(0, Math.round((nextFetchAt - Date.now()) / 1000));
       const last = el.dataset.lastUpdate || '';
-      el.textContent = last
+      textEl.textContent = last
         ? `Om ${secs} s  ·  Senast: ${last}`
         : 'Laddar…';
     }, 1000);
@@ -1189,10 +1231,10 @@
           // Popup
           let popup = `<div class="popup-wrapper">
             <div class="popup-header" style="background:${busColor};color:${textColor};">
-              Linje ${displayNumber}
+              Linje ${displayNumber}${vehicle.headsign ? ` <span style="opacity:0.75;font-weight:600;">→ ${vehicle.headsign}</span>` : ''}
             </div>`;
 
-          if (vehicle.routeLongName) {
+          if (vehicle.routeLongName && vehicle.routeLongName !== vehicle.headsign) {
             popup += `<p class="popup-long-name">${vehicle.routeLongName}</p>`;
           }
 
@@ -1304,11 +1346,12 @@
         // Återapplicera linjemarkering om en linje var vald
         if (highlightedRoute) applyHighlight(highlightedRoute);
 
-        // Smart startvy: om inga fordon i vy och ingen aktiv filter,
-        // zooma ut till hela regionen första gången
-        if (filtered.length === 0 && !activeFilter && Object.keys(vehicleMarkers).length === 0) {
+        // Smart startvy: om inga fordon i vy och ingen aktiv filter vid FÖRSTA laddningen,
+        // zooma ut till hela regionen. Görs bara en gång för att inte zooma ut vid panorering.
+        if (isFirstFetch && filtered.length === 0 && !activeFilter) {
           map.setView([60.6749, 17.1413], 10);
         }
+        isFirstFetch = false;
 
       } catch (err) {
         console.warn('Fel vid datahämtning:', err);
