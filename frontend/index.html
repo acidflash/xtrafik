@@ -6,91 +6,257 @@
   <title>X-trafik Realtidskarta</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <style>
-    body { margin: 0; padding: 0; }
+    /* ── Design tokens ──────────────────────────────────────────── */
+    :root {
+      --sp-1: 4px;
+      --sp-2: 8px;
+      --sp-3: 12px;
+      --sp-4: 16px;
+      --sp-5: 20px;
+
+      --radius-sm: 6px;
+      --radius-md: 10px;
+      --radius-lg: 14px;
+
+      --shadow-panel: 0 2px 12px oklch(0% 0 0 / 0.12), 0 1px 3px oklch(0% 0 0 / 0.08);
+
+      --color-accent:       oklch(42% 0.14 260);
+      --color-accent-hover: oklch(36% 0.14 260);
+      --color-accent-ring:  oklch(65% 0.14 260 / 0.2);
+
+      --color-text:        oklch(22% 0.01 260);
+      --color-text-muted:  oklch(52% 0.01 260);
+      --color-surface:     oklch(99% 0.005 260);
+      --color-border:      oklch(88% 0.008 260);
+      --color-row-divider: oklch(93% 0.005 260);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      margin: 0; padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      font-size: 13px;
+      color: var(--color-text);
+    }
+
     #map { height: 100vh; }
 
-    /* ── Leaflet controls ─────────────────────────────────────── */
-    .info {
-      padding: 6px 8px;
-      background: rgba(255, 255, 255, 0.9);
-      box-shadow: 0 0 15px rgba(0, 0, 0, 0.2);
-      border-radius: 5px;
+    /* ── Shared panel shell ─────────────────────────────────────── */
+    .panel {
+      background: var(--color-surface);
+      box-shadow: var(--shadow-panel);
+      border-radius: var(--radius-lg);
     }
-    .info h4 { margin: 0 0 5px; color: #777; }
-    .legend { line-height: 18px; color: #555; }
 
-    /* ── Bus markers ──────────────────────────────────────────── */
+    /* Leaflet applies its own to .info – override */
+    .info {
+      padding: var(--sp-3) var(--sp-4);
+      background: var(--color-surface);
+      box-shadow: var(--shadow-panel);
+      border-radius: var(--radius-lg);
+    }
+
+    /* ── Panel label (overline style) ───────────────────────────── */
+    .panel-label {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--color-text-muted);
+      margin: 0 0 var(--sp-1);
+    }
+
+    /* ── Info panel ─────────────────────────────────────────────── */
+    .info-count {
+      font-size: 26px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      color: var(--color-text);
+      line-height: 1;
+    }
+    .info-sub {
+      font-size: 12px;
+      color: var(--color-text-muted);
+      margin-top: var(--sp-1);
+    }
+
+    /* ── Bus markers ────────────────────────────────────────────── */
     .bus-icon-new { display: block; }
     .leaflet-zoom-animated { will-change: transform; }
 
-    /* ── Filter panel ─────────────────────────────────────────── */
+    /* ── Filter panel ───────────────────────────────────────────── */
     .filter-control {
-      padding: 6px 8px;
-      background: rgba(255, 255, 255, 0.9);
-      box-shadow: 0 0 15px rgba(0, 0, 0, 0.2);
-      border-radius: 5px;
-      margin-bottom: 10px;
+      padding: var(--sp-3) var(--sp-4);
+      background: var(--color-surface);
+      box-shadow: var(--shadow-panel);
+      border-radius: var(--radius-lg);
+      width: 200px;
     }
-    .filter-control input,
-    .filter-control button { margin-top: 5px; }
 
-    /* ── Layer control ────────────────────────────────────────── */
+    .filter-input {
+      display: block;
+      width: 100%;
+      margin-top: var(--sp-2);
+      padding: var(--sp-2) var(--sp-3);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      font-family: inherit;
+      color: var(--color-text);
+      background: white;
+      outline: none;
+      transition: border-color 150ms ease-out, box-shadow 150ms ease-out;
+    }
+    .filter-input:focus {
+      border-color: var(--color-accent);
+      box-shadow: 0 0 0 3px var(--color-accent-ring);
+    }
+    .filter-input::placeholder { color: var(--color-text-muted); }
+
+    .filter-buttons {
+      display: flex;
+      gap: var(--sp-2);
+      margin-top: var(--sp-2);
+    }
+
+    .btn-primary {
+      flex: 1;
+      padding: var(--sp-2) var(--sp-3);
+      background: var(--color-accent);
+      color: oklch(99% 0 0);
+      border: none;
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background-color 150ms ease-out, transform 100ms ease-out;
+    }
+    .btn-primary:hover { background: var(--color-accent-hover); }
+    .btn-primary:active { transform: scale(0.97); }
+
+    .btn-ghost {
+      padding: var(--sp-2) var(--sp-3);
+      background: transparent;
+      color: var(--color-text-muted);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      font-family: inherit;
+      cursor: pointer;
+      transition: border-color 150ms ease-out, color 150ms ease-out, transform 100ms ease-out;
+    }
+    .btn-ghost:hover {
+      border-color: oklch(68% 0.01 260);
+      color: var(--color-text);
+    }
+    .btn-ghost:active { transform: scale(0.97); }
+
+    /* ── Layer control ──────────────────────────────────────────── */
     .leaflet-control-layers {
-      box-shadow: 0 0 15px rgba(0, 0, 0, 0.2);
-      border-radius: 5px !important;
+      box-shadow: var(--shadow-panel) !important;
+      border-radius: var(--radius-lg) !important;
       border: none !important;
     }
     .leaflet-control-layers-expanded {
-      padding: 6px 8px;
-      background: rgba(255, 255, 255, 0.9);
+      padding: var(--sp-3) var(--sp-4);
+      background: var(--color-surface);
+      border-radius: var(--radius-lg) !important;
+      font-family: inherit;
+      font-size: 13px;
+      color: var(--color-text);
     }
 
-    /* ── Update indicator ─────────────────────────────────────── */
+    /* ── Legend ─────────────────────────────────────────────────── */
+    .legend {
+      max-height: 45vh;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+    }
+    .legend::-webkit-scrollbar { width: 4px; }
+    .legend::-webkit-scrollbar-track { background: transparent; }
+    .legend::-webkit-scrollbar-thumb {
+      background: var(--color-border);
+      border-radius: 2px;
+    }
+
+    /* ── Update indicator ───────────────────────────────────────── */
     .update-indicator {
-      font-size: 12px;
-      color: #555;
+      font-size: 11px;
+      color: var(--color-text-muted);
       transition: background-color 200ms ease-out, color 200ms ease-out;
     }
     .update-indicator.flash {
-      background: rgba(255, 250, 205, 0.9);
-      color: #333;
+      background: oklch(96% 0.04 90 / 0.95);
+      color: var(--color-text);
     }
 
-    /* ── Popup ────────────────────────────────────────────────── */
-    .popup-wrapper { min-width: 200px; }
+    /* ── Popup ──────────────────────────────────────────────────── */
+    .leaflet-popup-content-wrapper {
+      border-radius: var(--radius-lg) !important;
+      box-shadow: var(--shadow-panel) !important;
+      padding: 0 !important;
+      overflow: hidden;
+    }
+    .leaflet-popup-content {
+      margin: 0 !important;
+    }
+    .leaflet-popup-tip-container { margin-top: -1px; }
+
+    .popup-wrapper {
+      min-width: 210px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    }
     .popup-header {
-      margin: 0 0 8px;
-      padding: 6px 8px;
+      padding: var(--sp-3) var(--sp-4);
       text-align: center;
-      border-radius: 4px;
       font-size: 15px;
-      font-weight: bold;
+      font-weight: 800;
+      letter-spacing: -0.02em;
     }
     .popup-long-name {
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--color-text-muted);
+      text-align: center;
+      padding: 0 var(--sp-4) var(--sp-2);
+      margin: 0;
+    }
+    .popup-body {
+      padding: var(--sp-2) var(--sp-4) var(--sp-3);
+    }
+    .popup-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: var(--sp-2) 0;
+      gap: var(--sp-3);
+    }
+    .popup-row + .popup-row {
+      border-top: 1px solid var(--color-row-divider);
+    }
+    .popup-row-label {
+      font-size: 11px;
       font-weight: 600;
-      margin: 0 0 8px;
-      font-size: 13px;
-      color: #444;
-    }
-    .popup-table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 13px;
-    }
-    .popup-table td {
-      padding: 3px 0;
-      vertical-align: top;
-    }
-    .popup-table td:first-child {
-      font-weight: 600;
-      color: #555;
-      padding-right: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--color-text-muted);
       white-space: nowrap;
     }
+    .popup-row-value {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--color-text);
+      text-align: right;
+    }
 
-    /* ── Accessibility ────────────────────────────────────────── */
+    /* ── Accessibility ──────────────────────────────────────────── */
     @media (prefers-reduced-motion: reduce) {
-      .update-indicator { transition: none; }
+      .update-indicator,
+      .btn-primary,
+      .btn-ghost,
+      .filter-input { transition: none; }
     }
   </style>
 </head>
@@ -121,7 +287,7 @@
 
     const layerControl = L.control.layers(baseMaps, null, { position: 'topright' }).addTo(map);
     const layerTitle = document.createElement('div');
-    layerTitle.innerHTML = '<h4 style="margin:0 0 5px 0;text-align:center;">Kartstilar</h4>';
+    layerTitle.innerHTML = '<div class="panel-label" style="margin-bottom:8px;">Kartstilar</div>';
     layerControl.getContainer().insertBefore(layerTitle, layerControl.getContainer().firstChild);
 
     map.on('baselayerchange', e => localStorage.setItem('preferredMapLayer', e.name));
@@ -153,16 +319,23 @@
     }
 
     // ── Info panel ───────────────────────────────────────────────
-    let info = L.control();
+    let info = L.control({ position: 'topleft' });
     info.onAdd = function () {
       this._div = L.DomUtil.create('div', 'info');
       this.update(0);
       return this._div;
     };
     info.update = function (count, filtered = false) {
-      this._div.innerHTML = '<h4>X-trafik Realtid</h4>' +
-        (count ? `${count} fordon visas` : 'Laddar fordon...') +
-        (filtered ? ' (filtrerat)' : '');
+      if (count) {
+        this._div.innerHTML = `
+          <div class="panel-label">X-trafik Realtid</div>
+          <div class="info-count">${count}</div>
+          <div class="info-sub">fordon visas${filtered ? ' &nbsp;·&nbsp; filtrerat' : ''}</div>`;
+      } else {
+        this._div.innerHTML = `
+          <div class="panel-label">X-trafik Realtid</div>
+          <div class="info-sub" style="margin-top:4px;">Laddar fordon&hellip;</div>`;
+      }
     };
     info.addTo(map);
 
@@ -171,11 +344,13 @@
     filterControl.onAdd = function () {
       const div = L.DomUtil.create('div', 'filter-control');
       div.innerHTML = `
-        <h4>Filtrera efter linje</h4>
-        <input type="text" id="lineFilter" placeholder="Linjenummer, t.ex. 1" />
-        <button id="applyFilter">Filtrera</button>
-        <button id="clearFilter">Rensa</button>
-      `;
+        <div class="panel-label">Filtrera efter linje</div>
+        <input class="filter-input" type="text" id="lineFilter"
+               placeholder="Linjenummer, t.ex. 1" autocomplete="off" />
+        <div class="filter-buttons">
+          <button id="applyFilter" class="btn-primary">Sök</button>
+          <button id="clearFilter" class="btn-ghost">Rensa</button>
+        </div>`;
       return div;
     };
     filterControl.addTo(map);
@@ -191,7 +366,6 @@
       fetchData();
     });
 
-    // Enter-tangent aktiverar filter
     document.getElementById('lineFilter').addEventListener('keydown', e => {
       if (e.key === 'Enter') {
         activeFilter = e.target.value.trim();
@@ -232,16 +406,16 @@
 
       legend.onAdd = function () {
         const div = L.DomUtil.create('div', 'info legend');
-        div.innerHTML = '<h4>Busslinjer</h4>';
+        div.innerHTML = '<div class="panel-label" style="margin-bottom:8px;">Busslinjer</div>';
         busLinesSet.forEach(line => {
           const color = routeColors[line] || getBusColor(line);
           div.innerHTML += `
-            <div style="display:flex;align-items:center;margin-bottom:5px;">
-              <div style="position:relative;margin-right:10px;">
-                <div style="width:24px;height:14px;background-color:${color};border:2px solid white;border-radius:4px;box-shadow:0 0 3px rgba(0,0,0,0.5);"></div>
-                <div style="position:absolute;top:-8px;left:50%;transform:translateX(-50%);background:white;color:black;border:1px solid black;border-radius:8px;padding:0 4px;font-weight:bold;font-size:10px;text-align:center;">${line}</div>
+            <div style="display:flex;align-items:center;gap:8px;padding:3px 0;">
+              <div style="position:relative;flex-shrink:0;width:28px;height:16px;">
+                <div style="width:28px;height:16px;background:${color};border-radius:4px;"></div>
+                <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;color:white;text-shadow:0 1px 2px rgba(0,0,0,0.4);">${line}</div>
               </div>
-              Linje ${line}
+              <span style="font-size:12px;color:var(--color-text);">Linje ${line}</span>
             </div>`;
         });
         return div;
@@ -253,7 +427,7 @@
     const updateIndicator = L.control({ position: 'bottomleft' });
     updateIndicator.onAdd = function () {
       const div = L.DomUtil.create('div', 'info update-indicator');
-      div.textContent = 'Laddar...';
+      div.textContent = 'Laddar…';
       return div;
     };
     updateIndicator.addTo(map);
@@ -283,36 +457,30 @@
 
         const data = await fetch('/api/vehicles').then(r => r.json());
 
-        // Klientsidans fallback för bussnummer när backend returnerar 'Okänt'
         const vehicles = data.map(entity => {
           const v = { ...entity };
           const vehicleId = entity.vehicle?.id;
 
-          if (!vehicleId) {
-            v.busNumber = v.busNumber || '?';
-            return v;
-          }
+          if (!vehicleId) { v.busNumber = v.busNumber || '?'; return v; }
 
-          // Steg 1: Direktmappning för kända problematiska fordon
           const directMap = { '9031021000557753': '55' };
           if (directMap[vehicleId]) {
             v.busNumber = directMap[vehicleId];
           } else if (entity.busNumber && entity.busNumber !== 'Okänt') {
-            // Steg 2: Backend-värde (GTFS-uppslaget) – använd direkt
+            // Backend (GTFS) resolved it
           } else if (vehicleId.length === 16) {
-            // Steg 3: Extrahera från 16-siffrigt X-trafik fordons-ID
-            const companyId = vehicleId.substring(6, 10);
-            const companyMap = {
+            const cid = vehicleId.substring(6, 10);
+            const cmap = {
               '1000':'44','1001':'27','0005':'55','1002':'1','1003':'2',
               '1004':'3','1005':'4','1010':'10','1011':'11','1012':'12',
               '1015':'15','1020':'20','1030':'30','1041':'41','1042':'42',
               '1050':'50','0051':'51','0052':'52','0054':'54','0056':'56',
               '0057':'57','0058':'58','0059':'59'
             };
-            if (companyMap[companyId]) {
-              v.busNumber = companyMap[companyId];
-            } else if (companyId.startsWith('00')) {
-              const n = companyId.substring(2).replace(/^0+/, '');
+            if (cmap[cid]) {
+              v.busNumber = cmap[cid];
+            } else if (cid.startsWith('00')) {
+              const n = cid.substring(2).replace(/^0+/, '');
               v.busNumber = (n && parseInt(n) > 0) ? n : '?';
             } else {
               v.busNumber = '?';
@@ -324,7 +492,6 @@
           return v;
         });
 
-        // Prefix-matchning: "1" matchar linje 1, 10, 11, 12 …
         const filtered = activeFilter
           ? vehicles.filter(v =>
               v.busNumber?.startsWith(activeFilter) || v.routeId === activeFilter
@@ -346,7 +513,6 @@
           const busColor = getBusColor(vehicle.busNumber, vehicle.routeColor);
           const textColor = vehicle.routeTextColor || '#FFFFFF';
 
-          // Tidsstämpel
           let tsValue;
           if (typeof vehicle.timestamp === 'number') {
             tsValue = vehicle.timestamp;
@@ -364,9 +530,9 @@
 
           const speedText = speedKmh > 0 ? `${speedKmh} km/h` : 'Stillastående';
 
-          // Popup – bara användarrelevanta fält
+          // Popup
           let popup = `<div class="popup-wrapper">
-            <div class="popup-header" style="background-color:${busColor};color:${textColor};">
+            <div class="popup-header" style="background:${busColor};color:${textColor};">
               Linje ${displayNumber}
             </div>`;
 
@@ -374,17 +540,26 @@
             popup += `<p class="popup-long-name">${vehicle.routeLongName}</p>`;
           }
 
-          popup += `<table class="popup-table">
-            <tr><td>Hastighet</td><td>${speedText}</td></tr>
-            <tr><td>Uppdaterad</td><td>${timestamp}</td></tr>`;
+          popup += `<div class="popup-body">
+            <div class="popup-row">
+              <span class="popup-row-label">Hastighet</span>
+              <span class="popup-row-value">${speedText}</span>
+            </div>
+            <div class="popup-row">
+              <span class="popup-row-label">Uppdaterad</span>
+              <span class="popup-row-value">${timestamp}</span>
+            </div>`;
 
           if (vehicle.routeInfo?.agency) {
-            popup += `<tr><td>Operatör</td><td>${vehicle.routeInfo.agency}</td></tr>`;
+            popup += `<div class="popup-row">
+              <span class="popup-row-label">Operatör</span>
+              <span class="popup-row-value">${vehicle.routeInfo.agency}</span>
+            </div>`;
           }
 
-          popup += `</table></div>`;
+          popup += `</div></div>`;
 
-          // Bussikon
+          // Bus icon
           const busIcon = L.divIcon({
             html: `
               <div style="position:relative;">
@@ -426,7 +601,7 @@
 
       } catch (err) {
         info.update(0, false);
-        info._div.innerHTML += '<br><span style="color:red;">Fel vid hämtning av data</span>';
+        info._div.innerHTML += '<br><span style="color:#c0392b;font-size:12px;">Fel vid hämtning av data</span>';
       }
     }
 
