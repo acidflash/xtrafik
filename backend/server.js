@@ -251,7 +251,7 @@ async function fetchVehiclesFromSamtrafiken() {
           routeId,
           trip: vehicle.trip || null,
           busNumber: busNumber || 'Okänt',
-          routeColor:     resolvedRouteId ? gtfsLoader.getRouteColorFromRouteId(resolvedRouteId)     : '#1c65b0',
+          routeColor:     resolvedRouteId ? (gtfsLoader.getRouteColorFromRouteId(resolvedRouteId) || null) : null,
           routeTextColor: resolvedRouteId ? gtfsLoader.getRouteTextColorFromRouteId(resolvedRouteId) : '#FFFFFF',
           routeLongName:  resolvedRouteId ? gtfsLoader.getRouteLongNameFromRouteId(resolvedRouteId)  : null,
           routeInfo:      resolvedRouteId ? gtfsLoader.getRouteInfoFromRouteId(resolvedRouteId)      : null,

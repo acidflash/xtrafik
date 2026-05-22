@@ -344,7 +344,10 @@ function getRouteInfoFromRouteId(routeId) {
  */
 function getRouteColorFromRouteId(routeId) {
   const routeInfo = routeInfoMap[routeId];
-  return routeInfo ? `#${routeInfo.color}` : '#000000';
+  if (!routeInfo) return null;
+  // Returnera null om färgen är svart (GTFS-standard när ingen färg angetts)
+  if (!routeInfo.color || routeInfo.color === '000000' || routeInfo.color === '000') return null;
+  return `#${routeInfo.color}`;
 }
 
 /**
