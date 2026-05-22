@@ -236,8 +236,15 @@
       .legend { display: none; }
       .filter-control { display: none !important; }
       .filter-fab, .filter-sheet { display: block; }
-      /* Dölj "Kartstilar"-etiketten i lagerkontrollen */
-      .leaflet-control-layers .panel-label { display: none; }
+
+      /* Dölj alla panel-etiketter i Leaflet-kontroller */
+      .leaflet-control .panel-label { display: none; }
+
+      /* Kompakta info-panelen – ta bort titeln, minska padding */
+      .info .panel-label { display: none; }
+      .info { padding: var(--sp-2) var(--sp-3) !important; }
+      .info-count { font-size: 22px; }
+
       /* Större touch-yta för lokalisera-knappen */
       .locate-control a {
         width: 36px !important;
