@@ -589,21 +589,14 @@
       }
     });
 
-    // ── Direction arrow ──────────────────────────────────────────
-    function createDirectionMarker(lat, lon, bearing, color) {
-      return L.marker([lat, lon], {
-        icon: L.divIcon({
-          html: `<div style="transform:rotate(${bearing}deg);width:20px;height:20px;">
-            <svg width="20" height="20" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
-              <path d="M10,2 L16,10 L10,18 L4,10 Z" fill="${color}" stroke="white" stroke-width="1" />
-            </svg>
-          </div>`,
-          className: '',
-          iconSize: [20, 20],
-          iconAnchor: [10, 10]
-        }),
-        zIndexOffset: -1
-      });
+    // ── Direction arrow (inbyggd i bussikonen) ───────────────────
+    function bearingArrow(bearing) {
+      if (!bearing) return '';
+      return `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;">
+        <svg width="11" height="11" viewBox="0 0 10 10" style="transform:rotate(${bearing}deg);flex-shrink:0;filter:drop-shadow(0 0 1px rgba(0,0,0,0.4));">
+          <polygon points="5,0.5 9.5,9.5 0.5,9.5" fill="rgba(255,255,255,0.92)"/>
+        </svg>
+      </div>`;
     }
 
     // ── Legend ───────────────────────────────────────────────────
@@ -784,11 +777,12 @@
 
           popup += `</div></div>`;
 
-          // Bus icon
+          // Bus icon med inbyggd riktningspil
           const busIcon = L.divIcon({
             html: `
               <div style="position:relative;">
-                <div style="width:40px;height:24px;background-color:${busColor};border:2px solid white;border-radius:6px;position:relative;box-shadow:0 0 5px rgba(0,0,0,0.5);">
+                <div style="width:40px;height:24px;background-color:${busColor};border:2px solid white;border-radius:6px;position:relative;box-shadow:0 2px 6px rgba(0,0,0,0.45);">
+                  ${bearingArrow(bearing)}
                   <div style="position:absolute;width:6px;height:6px;border-radius:50%;background:#333;bottom:-3px;left:6px;"></div>
                   <div style="position:absolute;width:6px;height:6px;border-radius:50%;background:#333;bottom:-3px;right:6px;"></div>
                 </div>
@@ -804,11 +798,6 @@
             .addTo(markersGroup);
 
           markersByRoute[routeKey].push(marker);
-
-          if (speedKmh > 0 && bearing !== 0) {
-            const arrow = createDirectionMarker(lat, lon, bearing, busColor).addTo(markersGroup);
-            markersByRoute[routeKey].push(arrow);
-          }
         });
 
         updateLegend(busLines);
