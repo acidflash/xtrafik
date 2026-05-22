@@ -671,14 +671,14 @@
     });
 
     // ── Direction arrow – sticker ut från bussikonen ─────────────
-    // Ikonen har en 64×64 container. Bussrutan (40×22) är centrerad i
-    // containern (center = 32,32 = karmpositionen). Pilen roterar kring
-    // containerns centrum och sticker ut i körriktningen.
-    const ICON_SZ = 64;
-    const BUS_W = 40, BUS_H = 22;
-    const BUS_L = (ICON_SZ - BUS_W) / 2;   // 12
-    const BUS_T = (ICON_SZ - BUS_H) / 2;   // 21
-    const NUM_T = BUS_T - 12;              // 9
+    // Ikonstorlek skalas med zoomnivån för bättre läsbarhet.
+    function getIconDims() {
+      const z = map.getZoom();
+      if (z >= 16) return { sz: 64, busW: 40, busH: 22, arrW: 20, arrH: 18, numSz: 14 };
+      if (z >= 14) return { sz: 54, busW: 34, busH: 19, arrW: 17, arrH: 15, numSz: 12 };
+      if (z >= 12) return { sz: 44, busW: 28, busH: 15, arrW: 14, arrH: 12, numSz: 11 };
+      return              { sz: 36, busW: 22, busH: 12, arrW: 11, arrH: 10, numSz: 10 };
+    }
 
     // ── Legend ───────────────────────────────────────────────────
     function updateLegend(busLinesSet) {
@@ -906,11 +906,18 @@
 
           popup += `</div></div>`;
 
-          // Bus icon med utskjutande riktningspil
+          // Bus icon med utskjutande riktningspil (zoom-anpassad storlek)
+          const { sz, busW, busH, arrW, arrH, numSz } = getIconDims();
+          const busL = (sz - busW) / 2;
+          const busT = (sz - busH) / 2;
+          const numT = busT - numSz - 2;
+          const wheelR = Math.max(3, Math.round(busW * 0.12));
+          const wheelOff = Math.max(4, Math.round(busW * 0.17));
+
           const arrowHtml = bearing ? `
             <div style="position:absolute;inset:0;transform:rotate(${bearing}deg);pointer-events:none;z-index:5;">
               <svg style="position:absolute;top:2px;left:50%;transform:translateX(-50%);"
-                   width="20" height="18" viewBox="0 0 20 18">
+                   width="${arrW}" height="${arrH}" viewBox="0 0 20 18">
                 <polygon points="10,0 20,18 0,18"
                          fill="${busColor}"
                          stroke="white" stroke-width="3" stroke-linejoin="round"/>
@@ -919,26 +926,26 @@
 
           const busIcon = L.divIcon({
             html: `
-              <div style="position:relative;width:${ICON_SZ}px;height:${ICON_SZ}px;">
+              <div style="position:relative;width:${sz}px;height:${sz}px;">
                 ${arrowHtml}
-                <div style="position:absolute;left:${BUS_L}px;top:${BUS_T}px;
-                  width:${BUS_W}px;height:${BUS_H}px;background-color:${busColor};
-                  border:2px solid white;border-radius:6px;
+                <div style="position:absolute;left:${busL}px;top:${busT}px;
+                  width:${busW}px;height:${busH}px;background-color:${busColor};
+                  border:2px solid white;border-radius:${Math.round(busH * 0.27)}px;
                   box-shadow:0 2px 8px rgba(0,0,0,0.5);z-index:10;">
-                  <div style="position:absolute;width:5px;height:5px;border-radius:50%;background:#222;bottom:-3px;left:7px;"></div>
-                  <div style="position:absolute;width:5px;height:5px;border-radius:50%;background:#222;bottom:-3px;right:7px;"></div>
+                  <div style="position:absolute;width:${wheelR*2}px;height:${wheelR*2}px;border-radius:50%;background:#222;bottom:-${wheelR}px;left:${wheelOff}px;"></div>
+                  <div style="position:absolute;width:${wheelR*2}px;height:${wheelR*2}px;border-radius:50%;background:#222;bottom:-${wheelR}px;right:${wheelOff}px;"></div>
                 </div>
-                <div style="position:absolute;top:${NUM_T}px;left:50%;transform:translateX(-50%);
+                <div style="position:absolute;top:${numT}px;left:50%;transform:translateX(-50%);
                   background:white;color:black;border:2px solid black;border-radius:12px;
-                  padding:1px 6px;font-weight:bold;font-size:14px;z-index:20;
-                  min-width:14px;text-align:center;box-shadow:0 0 4px rgba(0,0,0,0.8);
+                  padding:1px 5px;font-weight:bold;font-size:${numSz}px;z-index:20;
+                  min-width:${numSz}px;text-align:center;box-shadow:0 0 4px rgba(0,0,0,0.8);
                   white-space:nowrap;">
                   ${displayNumber}
                 </div>
               </div>`,
             className: `bus-icon-new${ageOld ? ' stale' : ''}`,
-            iconSize: [ICON_SZ, ICON_SZ],
-            iconAnchor: [ICON_SZ / 2, ICON_SZ / 2]
+            iconSize: [sz, sz],
+            iconAnchor: [sz / 2, sz / 2]
           });
 
           const vehicleId = vehicle.vehicle?.id || `${lat},${lon}`;
@@ -1011,9 +1018,15 @@
     }
 
     // ── Rörelse-lyssnare (debounce 400 ms) ──────────────────────
-    map.on('moveend zoomend', () => {
+    map.on('moveend', () => {
       clearTimeout(moveDebounce);
       moveDebounce = setTimeout(fetchData, 400);
+    });
+    // Vid zoom: rensa och rita om direkt (ikonstorlek ändras)
+    map.on('zoomend', () => {
+      clearTimeout(moveDebounce);
+      clearAllMarkers();
+      moveDebounce = setTimeout(fetchData, 200);
     });
 
     // ── Bootstrap med geolokalisering ───────────────────────────
