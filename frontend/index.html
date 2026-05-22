@@ -105,8 +105,22 @@
     }
 
     /* ── Bus markers ────────────────────────────────────────────── */
-    .bus-icon-new { display: block; }
+    .bus-icon-new  { display: block; }
+    .train-icon    { display: block; }
     .leaflet-zoom-animated { will-change: transform; }
+
+    /* ── Tåg-toggle ──────────────────────────────────────────────── */
+    .train-toggle-control a {
+      width: 26px !important; height: 26px !important;
+      display: flex !important;
+      align-items: center; justify-content: center;
+      color: #333; text-decoration: none;
+      transition: color 120ms ease-out;
+    }
+    .train-toggle-control a:hover { color: var(--color-accent); }
+    .train-toggle-control a.active { color: oklch(42% 0.14 260); }
+    [data-theme="dark"] .train-toggle-control a { color: oklch(80% 0.01 260); }
+    [data-theme="dark"] .train-toggle-control a.active { color: oklch(65% 0.14 260); }
 
     /* ── Filter panel ───────────────────────────────────────────── */
     .filter-control {
@@ -602,6 +616,41 @@
     });
     new DarkControl().addTo(map);
 
+    // ── Tåg-toggle ───────────────────────────────────────────────
+    const TrainToggle = L.Control.extend({
+      options: { position: 'topleft' },
+      onAdd() {
+        const container = L.DomUtil.create('div', 'leaflet-bar leaflet-control train-toggle-control');
+        const link = L.DomUtil.create('a', 'active', container);
+        link.href = '#';
+        link.title = 'Visa/dölj tåg';
+        link.setAttribute('role', 'button');
+        link.setAttribute('aria-label', 'Visa/dölj tåg');
+        // Tåg-SVG ikon
+        link.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="4" y="3" width="16" height="13" rx="3"/>
+          <path d="M4 10h16"/>
+          <path d="M8 3v7"/><path d="M16 3v7"/>
+          <path d="M7 19l-2 2"/><path d="M17 19l2 2"/>
+          <path d="M9 19h6"/>
+        </svg>`;
+        L.DomEvent.on(link, 'click', L.DomEvent.stop);
+        L.DomEvent.on(link, 'click', () => {
+          showTrains = !showTrains;
+          link.classList.toggle('active', showTrains);
+          link.title = showTrains ? 'Dölj tåg' : 'Visa tåg';
+          if (showTrains) {
+            trainsGroup.addTo(map);
+            fetchTrains();
+          } else {
+            map.removeLayer(trainsGroup);
+          }
+        });
+        return container;
+      }
+    });
+    new TrainToggle().addTo(map);
+
     // ── Användarposition (blå prick) ─────────────────────────────
     let userMarker = null;
     let userCircle = null;
@@ -670,10 +719,12 @@
 
     // ── State ────────────────────────────────────────────────────
     let markersGroup = L.layerGroup().addTo(map);
-    let stopsGroup   = L.layerGroup();  // Hållplatser (visas vid zoom ≥ 15)
+    let trainsGroup  = L.layerGroup().addTo(map);  // Tåg (eget lager)
+    let stopsGroup   = L.layerGroup();             // Hållplatser (zoom ≥ 15)
     let markersByRoute = {};
     let vehicleMarkers  = {};   // vehicleId → { marker, animFrame, lat, lng, seen }
     let vehicleRouteMap = {};   // vehicleId → routeKey (för linjemarkering)
+    let trainMarkers    = {};   // trainId   → { marker, animFrame, lat, lng, seen }
     let legend = L.control({ position: 'bottomright' });
     let activeFilter     = '';
     let highlightedRoute = null;
@@ -684,7 +735,8 @@
     let stopsVisible = false;
     let stopsFetching = false;
     let stopsFetchedBbox = '';
-    let isFirstFetch = true; // Spårar om detta är den allra första datahämtningen
+    let isFirstFetch  = true;
+    let showTrains    = true; // Tåg visas som standard
 
     // ── Positionsanimering ───────────────────────────────────────
     // Interpolerar en markör från nuvarande position till ny position
@@ -774,6 +826,157 @@
       if (!deg && deg !== 0) return null;
       const dirs = ['N','NNO','NO','ONO','O','OSO','SO','SSO','S','SSV','SV','VSV','V','VNV','NV','NNV'];
       return dirs[Math.round(((deg % 360) + 360) % 360 / 22.5) % 16];
+    }
+
+    // ── Tåg-hämtning och rendering ───────────────────────────────
+    const TRAIN_COLORS = {
+      'X-tåg': '#1a237e',
+      'TIB':   '#4a148c',
+      'SJ-Tåg':'#1565c0',
+      'default':'#0d47a1',
+    };
+
+    function getTrainColor(lineName) {
+      if (!lineName) return TRAIN_COLORS['default'];
+      for (const [key, color] of Object.entries(TRAIN_COLORS)) {
+        if (lineName.startsWith(key)) return color;
+      }
+      return TRAIN_COLORS['default'];
+    }
+
+    function makeTrainIcon(lineName, bearing, ageOld) {
+      const z = map.getZoom();
+      const sz  = z >= 14 ? 60 : z >= 12 ? 50 : 44;
+      const w   = z >= 14 ? 42 : z >= 12 ? 34 : 30;
+      const h   = z >= 14 ? 18 : z >= 12 ? 15 : 13;
+      const numSz = z >= 14 ? 11 : 10;
+      const color = getTrainColor(lineName);
+      const label = lineName || 'Tåg';
+
+      const arrowHtml = bearing ? `
+        <div style="position:absolute;inset:0;transform:rotate(${bearing}deg);pointer-events:none;z-index:5;">
+          <svg style="position:absolute;top:1px;left:50%;transform:translateX(-50%);"
+               width="${Math.round(w*0.45)}" height="${Math.round(h*0.9)}" viewBox="0 0 20 18">
+            <polygon points="10,0 20,18 0,18" fill="${color}" stroke="white" stroke-width="3" stroke-linejoin="round"/>
+          </svg>
+        </div>` : '';
+
+      const busL = (sz - w) / 2;
+      const busT = (sz - h) / 2;
+      const numT = busT - numSz - 2;
+
+      return L.divIcon({
+        html: `<div style="position:relative;width:${sz}px;height:${sz}px;">
+          ${arrowHtml}
+          <div style="position:absolute;left:${busL}px;top:${busT}px;
+            width:${w}px;height:${h}px;background:${color};
+            border:2px solid white;border-radius:3px;
+            box-shadow:0 2px 8px rgba(0,0,0,0.5);z-index:10;">
+            <!-- Tågfönster -->
+            <div style="position:absolute;top:2px;left:4px;right:4px;bottom:2px;
+              display:flex;gap:3px;align-items:center;">
+              ${Array.from({length: Math.max(2, Math.floor(w/10))}, () =>
+                `<div style="flex:1;height:60%;background:rgba(255,255,255,0.35);border-radius:1px;"></div>`
+              ).join('')}
+            </div>
+          </div>
+          <div style="position:absolute;top:${numT}px;left:50%;transform:translateX(-50%);
+            background:white;color:${color};border:2px solid ${color};border-radius:10px;
+            padding:1px 5px;font-weight:800;font-size:${numSz}px;z-index:20;
+            min-width:${numSz}px;text-align:center;box-shadow:0 0 4px rgba(0,0,0,0.6);
+            white-space:nowrap;">${label}</div>
+        </div>`,
+        className: `train-icon${ageOld ? ' stale' : ''}`,
+        iconSize: [sz, sz],
+        iconAnchor: [sz/2, sz/2],
+      });
+    }
+
+    async function fetchTrains() {
+      if (!showTrains) return;
+      try {
+        const b = map.getBounds();
+        const bbox = [
+          b.getSouth().toFixed(5), b.getWest().toFixed(5),
+          b.getNorth().toFixed(5), b.getEast().toFixed(5),
+        ].join(',');
+
+        const resp = await fetch(`/api/trains?bbox=${bbox}`);
+        const trains = await resp.json();
+
+        // Markera alla befintliga tåg-markörer som osedda
+        Object.values(trainMarkers).forEach(e => { e.seen = false; });
+
+        trains.forEach(train => {
+          if (!train.position) return;
+          const { latitude: lat, longitude: lon, bearing = 0 } = train.position;
+          const trainId = train.vehicle?.id || `${lat},${lon}`;
+
+          let tsValue;
+          if (typeof train.timestamp === 'number') tsValue = train.timestamp;
+          else if (train.timestamp?.low !== undefined) tsValue = train.timestamp.low;
+          else tsValue = Math.floor(Date.now() / 1000);
+
+          const posAge = Math.round(Date.now() / 1000 - tsValue);
+          const ageOld = posAge > 180;
+          const timestamp = new Date(parseInt(tsValue) * 1000)
+            .toLocaleTimeString('sv-SE', { hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false });
+          const ageText = posAge < 60 ? `${posAge} s`
+            : posAge < 300 ? `${Math.round(posAge/60)} min`
+            : `⚠ ${Math.round(posAge/60)} min`;
+
+          const lineName = train.lineName || 'Tåg';
+          const color    = getTrainColor(lineName);
+          const icon = makeTrainIcon(lineName, bearing, ageOld);
+
+          const popup = `<div class="popup-wrapper">
+            <div class="popup-header" style="background:${color};color:#fff;">
+              ${lineName}${train.routeLongName ? ` <span style="opacity:.75;font-weight:600;font-size:12px;">${train.routeLongName}</span>` : ''}
+            </div>
+            <div class="popup-body">
+              <div class="popup-row">
+                <span class="popup-row-label">GPS-tid</span>
+                <span class="popup-row-value">${timestamp}</span>
+              </div>
+              <div class="popup-row">
+                <span class="popup-row-label">Ålder</span>
+                <span class="popup-row-value" style="${ageOld ? 'color:oklch(55% 0.18 30)' : ''}">${ageText}</span>
+              </div>
+            </div>
+          </div>`;
+
+          const existing = trainMarkers[trainId];
+          if (existing) {
+            animateMarker(existing, lat, lon);
+            existing.marker.setIcon(icon);
+            existing.marker.setPopupContent(popup);
+            existing.seen = true;
+          } else {
+            const marker = L.marker([lat, lon], { icon, zIndexOffset: 900 })
+              .bindPopup(popup)
+              .addTo(trainsGroup);
+            trainMarkers[trainId] = { marker, animFrame: null, lat, lng: lon, seen: true };
+          }
+        });
+
+        // Ta bort tåg-markörer som lämnat vyn
+        Object.keys(trainMarkers).forEach(id => {
+          const e = trainMarkers[id];
+          if (!e.seen) {
+            if (e.animFrame) cancelAnimationFrame(e.animFrame);
+            trainsGroup.removeLayer(e.marker);
+            delete trainMarkers[id];
+          } else {
+            e.seen = false;
+          }
+        });
+
+        if (trains.length > 0) {
+          console.log(`Tåg: ${trains.length} i vyn`);
+        }
+      } catch (err) {
+        console.warn('Fel vid tåghämtning:', err);
+      }
     }
 
     // ── Colour map (fallback när GTFS saknar färger) ─────────────
@@ -1397,13 +1600,19 @@
     // ── Rörelse-lyssnare (debounce 400 ms) ──────────────────────
     map.on('moveend', () => {
       clearTimeout(moveDebounce);
-      moveDebounce = setTimeout(() => { fetchData(); updateStopsLayer(); }, 400);
+      moveDebounce = setTimeout(() => { fetchData(); fetchTrains(); updateStopsLayer(); }, 400);
     });
     // Vid zoom: rensa och rita om direkt (ikonstorlek ändras)
     map.on('zoomend', () => {
       clearTimeout(moveDebounce);
       clearAllMarkers();
-      moveDebounce = setTimeout(() => { fetchData(); updateStopsLayer(); }, 200);
+      // Rensa tåg-markörer vid zoom (ikonstorlek ändras)
+      Object.values(trainMarkers).forEach(e => {
+        if (e.animFrame) cancelAnimationFrame(e.animFrame);
+        trainsGroup.removeLayer(e.marker);
+      });
+      trainMarkers = {};
+      moveDebounce = setTimeout(() => { fetchData(); fetchTrains(); updateStopsLayer(); }, 200);
     });
 
     // ── Bootstrap med geolokalisering ───────────────────────────
@@ -1422,6 +1631,7 @@
         flashUpdateIndicator();
         nextFetchAt = Date.now() + INTERVAL;
         fetchData();
+        fetchTrains();
       }
 
       function startPolling() {
@@ -1432,6 +1642,7 @@
       if (!navigator.geolocation) {
         nextFetchAt = Date.now() + INTERVAL;
         fetchData();
+        fetchTrains();
         startPolling();
         return;
       }
@@ -1449,7 +1660,7 @@
           updateUserMarker(lat, lon, acc);
           // Om URL-hash finns, zooma INTE till position (respektera sparad vy)
           if (!parseHash()) map.setView([lat, lon], 14);
-          if (!started) { started = true; nextFetchAt = Date.now() + INTERVAL; fetchData(); }
+          if (!started) { started = true; nextFetchAt = Date.now() + INTERVAL; fetchData(); fetchTrains(); }
           // Börja bevaka positionen kontinuerligt
           if (userWatchId === null) {
             userWatchId = navigator.geolocation.watchPosition(
@@ -1461,7 +1672,7 @@
         },
         () => {
           clearTimeout(fallback);
-          if (!started) { started = true; nextFetchAt = Date.now() + INTERVAL; fetchData(); }
+          if (!started) { started = true; nextFetchAt = Date.now() + INTERVAL; fetchData(); fetchTrains(); }
         },
         { timeout: 8000, maximumAge: 60000 }
       );

@@ -20,6 +20,7 @@ app.set('trust proxy', 1); // Lita på proxy (Docker/nginx) för korrekt IP-iden
 const PORT = process.env.PORT || 3000;  // Använd port 3000
 const API_KEY = process.env.API_KEY;
 const ADMIN_KEY = process.env.ADMIN_KEY;
+const TRAIN_API_KEY = process.env.TRAIN_API_KEY;
 
 // Kontrollera och logga API-nyckeln
 if (API_KEY) {
@@ -190,6 +191,113 @@ app.get('/api/stops', apiLimiter, (req, res) => {
     s.lon >= minLon && s.lon <= maxLon
   );
   res.json(result);
+});
+
+// ── Tågcache (GTFS Sverige 3 Realtime) ───────────────────────────
+const TRAIN_CACHE_TTL = 15000; // 15 sekunder (tåg rör sig långsammare)
+let _trainCache = { trains: null, timestamp: 0, inflight: null };
+
+// Tåg-route_ids från X-trafiks GTFS (route_type=100)
+const TRAIN_ROUTE_IDS = new Set([
+  '9011021030000000', // X-tåg Gävle-Ljusdal
+  '9011021030100000', // X-tåg Gävle-Sundsvall
+  '9011021035300000', // TIB 353
+  '9011021035400000', // TIB 354
+  '9011021301100000', // SJ-Tåg 3011
+  '9011021301500000', // SJ-Tåg 3015
+]);
+
+async function fetchTrainsFromSamtrafiken() {
+  if (!TRAIN_API_KEY) return [];
+
+  const now = Date.now();
+  if (_trainCache.trains && (now - _trainCache.timestamp) < TRAIN_CACHE_TTL) {
+    return _trainCache.trains;
+  }
+  if (_trainCache.inflight) return _trainCache.inflight;
+
+  _trainCache.inflight = (async () => {
+    const response = await fetch(
+      `https://opendata.samtrafiken.se/gtfs3-rt/sweden/VehiclePositions.pb?key=${TRAIN_API_KEY}`,
+      { headers: { 'Accept-Encoding': 'gzip, deflate' } }
+    );
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      console.error(`Tåg API-fel: ${response.status}`, body.substring(0, 200));
+      throw new Error(`Tåg API: ${response.status} ${response.statusText}`);
+    }
+
+    const buffer = await response.arrayBuffer();
+    if (buffer.byteLength === 0) throw new Error('Tåg API returnerade tom data');
+
+    const feed = transit_realtime.FeedMessage.decode(new Uint8Array(buffer));
+
+    const trains = feed.entity
+      .filter(entity => entity && entity.vehicle && entity.vehicle.position)
+      .map(entity => {
+        const vehicle = entity.vehicle;
+        const vehicleId = vehicle.vehicle?.id || 'unknown';
+        const routeId   = vehicle.trip?.routeId  || vehicle.trip?.route_id  || null;
+        const tripId    = vehicle.trip?.tripId   || vehicle.trip?.trip_id   || null;
+
+        // Slå upp linjenamn från vår lokala GTFS-data om route_id matchar
+        const busNumber   = routeId ? (gtfsLoader.getBusNumberFromRouteId(routeId) || null) : null;
+        const routeLongName = routeId ? gtfsLoader.getRouteLongNameFromRouteId(routeId) : null;
+
+        return {
+          id: vehicleId,
+          vehicle: { id: vehicleId },
+          position: vehicle.position,
+          timestamp: vehicle.timestamp,
+          routeId,
+          tripId,
+          lineName: busNumber,
+          routeLongName,
+          type: 'train',
+        };
+      });
+
+    console.log(`Tåg: hämtade ${trains.length} fordon från GTFS Sverige 3 RT`);
+    _trainCache = { trains, timestamp: Date.now(), inflight: null };
+    return trains;
+  })();
+
+  _trainCache.inflight.catch(() => { _trainCache.inflight = null; });
+  return _trainCache.inflight;
+}
+
+// API-endpoint för tåg
+app.get('/api/trains', apiLimiter, async (req, res) => {
+  if (!TRAIN_API_KEY) {
+    return res.json([]); // Tyst fallback om nyckel saknas
+  }
+  try {
+    const { bbox } = req.query;
+    let bboxFilter = null;
+    if (bbox) {
+      const parts = bbox.split(',').map(Number);
+      if (parts.length === 4 && parts.every(n => isFinite(n))) {
+        const [minLat, minLon, maxLat, maxLon] = parts;
+        if (minLat < maxLat && minLon < maxLon) bboxFilter = { minLat, minLon, maxLat, maxLon };
+      }
+    }
+
+    const trains = await fetchTrainsFromSamtrafiken();
+    const result = bboxFilter
+      ? trains.filter(t => {
+          const { latitude: lat, longitude: lon } = t.position;
+          return lat >= bboxFilter.minLat && lat <= bboxFilter.maxLat &&
+                 lon >= bboxFilter.minLon && lon <= bboxFilter.maxLon;
+        })
+      : trains;
+
+    res.set('X-Total-Count', String(trains.length));
+    res.json(result);
+  } catch (err) {
+    console.error('Fel vid tåghämtning:', err.message);
+    res.json([]); // Returnera tomt istället för att krascha kartan
+  }
 });
 
 // ── Cache för Samtrafikens GTFS-RT (minskar externa API-anrop) ───
