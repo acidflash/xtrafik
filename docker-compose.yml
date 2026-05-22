@@ -1,7 +1,10 @@
 
 services:
   xtrafik-app:
-    build: ./backend
+    build:
+      context: ./backend
+      args:
+        BUILDTIME: "${BUILDTIME:-dev}"
     ports:
       - "3000:3000"
     env_file:
