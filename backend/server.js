@@ -16,6 +16,7 @@ const RateLimit = require('express-rate-limit');
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 const app = express();
+app.set('trust proxy', 1); // Lita på proxy (Docker/nginx) för korrekt IP-identifiering
 const PORT = process.env.PORT || 3000;  // Använd port 3000
 const API_KEY = process.env.API_KEY;
 const ADMIN_KEY = process.env.ADMIN_KEY;
@@ -151,6 +152,19 @@ app.get('/api/vehicles', apiLimiter, async (req, res) => {
       throw new Error('API-nyckel saknas');
     }
 
+    // Valfritt bounding-box-filter: ?bbox=minLat,minLon,maxLat,maxLon
+    const { bbox } = req.query;
+    let bboxFilter = null;
+    if (bbox) {
+      const parts = bbox.split(',').map(Number);
+      if (parts.length === 4 && parts.every(n => isFinite(n))) {
+        const [minLat, minLon, maxLat, maxLon] = parts;
+        if (minLat < maxLat && minLon < maxLon) {
+          bboxFilter = { minLat, minLon, maxLat, maxLon };
+        }
+      }
+    }
+
     const response = await fetch(`https://opendata.samtrafiken.se/gtfs-rt/xt/VehiclePositions.pb?key=${API_KEY}`, {
       headers: {
         'Accept-Encoding': 'gzip, deflate'
@@ -226,8 +240,17 @@ app.get('/api/vehicles', apiLimiter, async (req, res) => {
         };
       });
     
-    console.log(`Skickar ${vehicles.length} fordon till klienten`);
-    res.json(vehicles);
+    // Filtrera på bounding box om angiven
+    const result = bboxFilter
+      ? vehicles.filter(v => {
+          const { latitude: lat, longitude: lon } = v.position;
+          return lat >= bboxFilter.minLat && lat <= bboxFilter.maxLat &&
+                 lon >= bboxFilter.minLon && lon <= bboxFilter.maxLon;
+        })
+      : vehicles;
+
+    console.log(`Skickar ${result.length}${bboxFilter ? `/${vehicles.length}` : ''} fordon till klienten`);
+    res.json(result);
     
   } catch (error) {
     console.error('Fel vid fordonshämtning:', error);

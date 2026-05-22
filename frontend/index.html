@@ -255,12 +255,28 @@
       text-align: right;
     }
 
+    /* ── Locate control ─────────────────────────────────────────── */
+    .locate-control a {
+      width: 26px !important;
+      height: 26px !important;
+      display: flex !important;
+      align-items: center;
+      justify-content: center;
+      color: #333;
+      text-decoration: none;
+      transition: color 120ms ease-out;
+    }
+    .locate-control a:hover { color: var(--color-accent); }
+    .locate-control a.locating { color: var(--color-accent); animation: pulse-icon 1s ease-in-out infinite; }
+    @keyframes pulse-icon { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+
     /* ── Accessibility ──────────────────────────────────────────── */
     @media (prefers-reduced-motion: reduce) {
       .update-indicator,
       .btn-primary,
       .btn-ghost,
       .filter-input { transition: none; }
+      .locate-control a.locating { animation: none; }
     }
   </style>
 </head>
@@ -296,13 +312,47 @@
 
     map.on('baselayerchange', e => localStorage.setItem('preferredMapLayer', e.name));
 
+    // ── Locate control ───────────────────────────────────────────
+    const LocateControl = L.Control.extend({
+      options: { position: 'topleft' },
+      onAdd() {
+        const container = L.DomUtil.create('div', 'leaflet-bar leaflet-control locate-control');
+        const link = L.DomUtil.create('a', '', container);
+        link.href = '#';
+        link.title = 'Zooma till min position';
+        link.setAttribute('role', 'button');
+        link.setAttribute('aria-label', 'Zooma till min position');
+        link.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"/>
+          <line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/>
+          <line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/>
+        </svg>`;
+        L.DomEvent.on(link, 'click', L.DomEvent.stop);
+        L.DomEvent.on(link, 'click', () => locateUser(link));
+        return container;
+      }
+    });
+    new LocateControl().addTo(map);
+
+    function locateUser(btn) {
+      if (!navigator.geolocation) return;
+      if (btn) btn.classList.add('locating');
+      navigator.geolocation.getCurrentPosition(pos => {
+        if (btn) btn.classList.remove('locating');
+        map.setView([pos.coords.latitude, pos.coords.longitude], 14);
+        fetchData();
+      }, () => {
+        if (btn) btn.classList.remove('locating');
+      }, { timeout: 10000 });
+    }
+
     // ── State ────────────────────────────────────────────────────
     let markersGroup = L.layerGroup().addTo(map);
     let markersByRoute = {};
     let legend = L.control({ position: 'bottomright' });
     let activeFilter = '';
     let busLines = new Set();
-    let initialMapViewSet = false;
+    let moveDebounce = null;
 
     // ── Colour map (fallback när GTFS saknar färger) ─────────────
     const busColors = {
@@ -329,12 +379,16 @@
       this.update(0);
       return this._div;
     };
-    info.update = function (count, filtered = false) {
-      if (count) {
+    info.update = function (count, filtered = false, loading = false) {
+      if (loading) {
+        this._div.innerHTML = `
+          <div class="panel-label">X-trafik Realtid</div>
+          <div class="info-sub" style="margin-top:4px;">Laddar fordon&hellip;</div>`;
+      } else if (count !== null) {
         this._div.innerHTML = `
           <div class="panel-label">X-trafik Realtid</div>
           <div class="info-count">${count}</div>
-          <div class="info-sub">fordon visas${filtered ? ' &nbsp;·&nbsp; filtrerat' : ''}</div>`;
+          <div class="info-sub">fordon i vyn${filtered ? ' &nbsp;·&nbsp; filtrerat' : ''}</div>`;
       } else {
         this._div.innerHTML = `
           <div class="panel-label">X-trafik Realtid</div>
@@ -459,7 +513,14 @@
         busLines.clear();
         markersByRoute = {};
 
-        const data = await fetch('/api/vehicles').then(r => r.json());
+        // Skicka kartans aktuella vy som bounding box
+        const b = map.getBounds();
+        const bbox = [
+          b.getSouth().toFixed(5), b.getWest().toFixed(5),
+          b.getNorth().toFixed(5), b.getEast().toFixed(5)
+        ].join(',');
+
+        const data = await fetch(`/api/vehicles?bbox=${bbox}`).then(r => r.json());
 
         const vehicles = data.map(entity => {
           const v = { ...entity };
@@ -593,29 +654,49 @@
         updateLegend(busLines);
         setLastUpdatedTime();
 
-        if (filtered.length > 0 && !activeFilter && !initialMapViewSet) {
-          const bounds = filtered
-            .filter(v => v.position?.latitude && v.position?.longitude)
-            .map(v => [v.position.latitude, v.position.longitude]);
-          if (bounds.length > 0) {
-            map.fitBounds(bounds, { padding: [50, 50] });
-            initialMapViewSet = true;
-          }
-        }
-
       } catch (err) {
-        info.update(0, false);
+        info.update(null, false);
         info._div.innerHTML += '<br><span style="color:#c0392b;font-size:12px;">Fel vid hämtning av data</span>';
       }
     }
 
-    // ── Bootstrap ────────────────────────────────────────────────
-    fetchData();
+    // ── Rörelse-lyssnare (debounce 400 ms) ──────────────────────
+    map.on('moveend zoomend', () => {
+      clearTimeout(moveDebounce);
+      moveDebounce = setTimeout(fetchData, 400);
+    });
 
-    setInterval(() => {
-      flashUpdateIndicator();
-      fetchData();
-    }, 15000);
+    // ── Bootstrap med geolokalisering ───────────────────────────
+    (function init() {
+      info.update(null, false, true);
+
+      if (!navigator.geolocation) {
+        fetchData();
+        setInterval(() => { flashUpdateIndicator(); fetchData(); }, 15000);
+        return;
+      }
+
+      // Timeout: om geolok tar > 2 s, starta ändå med standardvy
+      let started = false;
+      const fallback = setTimeout(() => {
+        if (!started) { started = true; fetchData(); }
+      }, 2000);
+
+      navigator.geolocation.getCurrentPosition(
+        pos => {
+          clearTimeout(fallback);
+          map.setView([pos.coords.latitude, pos.coords.longitude], 14);
+          if (!started) { started = true; fetchData(); }
+        },
+        () => {
+          clearTimeout(fallback);
+          if (!started) { started = true; fetchData(); }
+        },
+        { timeout: 8000, maximumAge: 60000 }
+      );
+
+      setInterval(() => { flashUpdateIndicator(); fetchData(); }, 15000);
+    })();
   </script>
 </body>
 </html>
