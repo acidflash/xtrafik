@@ -20,6 +20,7 @@ let routeMap = {}; // route_id -> route_short_name
 let routeInfoMap = {}; // route_id -> full route info (namn, färger, etc)
 let tripToRouteMap = {}; // trip_id -> route_id
 let blockToRouteMap = {}; // block_id -> route_id
+let agencyMap = {}; // agency_id -> agency_name
 
 // Tid för senaste uppdatering och uppdateringsintervall (7 dagar i millisekunder)
 let lastUpdateTime = 0;
@@ -210,6 +211,36 @@ async function extractGtfsData() {
 /**
  * Parse routes.txt för att bygga upp route-mappning
  */
+/**
+ * Parse agency.txt för att bygga upp agency_id -> agency_name mappning
+ */
+function parseAgencyData() {
+  return new Promise((resolve, reject) => {
+    const agencyFile = path.join(GTFS_EXTRACT_PATH, 'agency.txt');
+    if (!fs.existsSync(agencyFile)) {
+      resolve({});
+      return;
+    }
+    const results = {};
+    fs.createReadStream(agencyFile)
+      .pipe(csv())
+      .on('data', (data) => {
+        if (data.agency_id && data.agency_name) {
+          results[data.agency_id] = data.agency_name;
+        }
+      })
+      .on('end', () => {
+        console.log(`${Object.keys(results).length} operatörer lästes in`);
+        agencyMap = results;
+        resolve(results);
+      })
+      .on('error', reject);
+  });
+}
+
+/**
+ * Parse routes.txt för att bygga upp route-mappning
+ */
 function parseRoutesData() {
   return new Promise((resolve, reject) => {
     console.log('Parsning av routes.txt...');
@@ -232,7 +263,7 @@ function parseRoutesData() {
           infoResults[routeId] = {
             shortName: routeShortName,
             longName: data.route_long_name || '',
-            agency: data.agency_id || '',
+            agency: agencyMap[data.agency_id] || data.agency_id || '',
             type: parseInt(data.route_type) || 3, // 3 = buss som standard
             color: data.route_color || '000000', // Svart som standard
             textColor: data.route_text_color || 'FFFFFF', // Vit som standard
@@ -399,7 +430,8 @@ async function loadGtfsData(forceRefresh = false) {
       console.log('GTFS-data är aktuell, använder befintlig data');
     }
     
-    // Parse data files
+    // Parse data files – agency måste laddas först så routeInfo kan slå upp namn
+    await parseAgencyData();
     await parseRoutesData();
     await parseTripsData();
     
