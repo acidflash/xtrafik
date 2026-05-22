@@ -44,9 +44,10 @@ curl -H "Authorization: Bearer $ADMIN_KEY" http://localhost:3000/admin/refresh-g
 
 Copy `.env.example` to `.env` in the project root (not inside `backend/`):
 ```
-API_KEY=<GTFS Regional Realtime key>       # for VehiclePositions.pb
-GTFS_API_KEY=<GTFS Regional Static key>   # for xt.zip (weekly download)
+API_KEY=<GTFS Regional Realtime key>            # for VehiclePositions.pb
+GTFS_API_KEY=<GTFS Regional Static key>         # for xt.zip (weekly download)
 ADMIN_KEY=<random hex, e.g. openssl rand -hex 32>
+TRAFIKVERKET_API_KEY=<free key from api.trafikinfo.trafikverket.se>  # for train positions
 PORT=3000
 ```
 
