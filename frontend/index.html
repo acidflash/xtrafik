@@ -713,8 +713,9 @@
           return v;
         });
 
-        // Linje 44 = X-trafiks kod för tomkörning (ej i trafik) – dölj dessa
-        const activeVehicles = vehicles.filter(v => v.busNumber !== '44');
+        // Linje 44 = tomkörning, linje 27 = paus/ej i trafik – dölj dessa
+        const OUT_OF_SERVICE = new Set(['44', '27']);
+        const activeVehicles = vehicles.filter(v => !OUT_OF_SERVICE.has(v.busNumber));
 
         const filtered = activeFilter
           ? activeVehicles.filter(v =>
