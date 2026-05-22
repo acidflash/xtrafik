@@ -49,3 +49,6 @@ backend/gtfs-data.zip
 .vscode/
 *.swp
 *.swo
+
+# Claude Code local config
+.claude/
