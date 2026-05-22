@@ -443,6 +443,15 @@
   <script>
     const map = L.map('map').setView([60.6749, 17.1413], 10);
 
+    // ── Tema-återställning (måste ske innan kartlager väljs) ─────
+    try {
+      const saved = localStorage.getItem('xtrafik-theme');
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      if (saved === 'dark' || (!saved && prefersDark)) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+      }
+    } catch (_) {}
+
     // ── Base map layers ──────────────────────────────────────────
     const baseMaps = {
       "OpenStreetMap": L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -532,15 +541,6 @@
         return container;
       }
     });
-    // Återställ tema vid sidladdning (innan kontrollen renderas)
-    try {
-      const saved = localStorage.getItem('xtrafik-theme');
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      if (saved === 'dark' || (!saved && prefersDark)) {
-        document.documentElement.setAttribute('data-theme', 'dark');
-      }
-    } catch (_) {}
-
     new DarkControl().addTo(map);
 
     // ── Användarposition (blå prick) ─────────────────────────────
