@@ -145,6 +145,53 @@ app.get('/api/gtfs-status', apiLimiter, (req, res) => {
   }
 });
 
+// ── Hållplats-data (parsas en gång vid uppstart) ─────────────────
+let _stopsCache = null;
+
+function getStops() {
+  if (_stopsCache) return _stopsCache;
+  const stopsPath = path.resolve(__dirname, 'gtfs-data', 'stops.txt');
+  if (!fs.existsSync(stopsPath)) return [];
+  const lines = fs.readFileSync(stopsPath, 'utf8').split('\n');
+  const header = lines[0].split(',');
+  const iId   = header.indexOf('stop_id');
+  const iName = header.indexOf('stop_name');
+  const iLat  = header.indexOf('stop_lat');
+  const iLon  = header.indexOf('stop_lon');
+  const iType = header.indexOf('location_type');
+  const stops = [];
+  for (let i = 1; i < lines.length; i++) {
+    const parts = lines[i].split(',');
+    if (parts.length < 4) continue;
+    const locType = parts[iType] ? parseInt(parts[iType]) : 0;
+    if (locType !== 0) continue; // Bara plattformar/hållplatslägen
+    const lat = parseFloat(parts[iLat]);
+    const lon = parseFloat(parts[iLon]);
+    if (!isFinite(lat) || !isFinite(lon)) continue;
+    stops.push({ id: parts[iId], name: parts[iName]?.trim(), lat, lon });
+  }
+  console.log(`Hållplatser laddade: ${stops.length} st`);
+  _stopsCache = stops;
+  return stops;
+}
+
+// API för hållplatser inom en bounding box (kräver ?bbox=minLat,minLon,maxLat,maxLon)
+app.get('/api/stops', apiLimiter, (req, res) => {
+  const { bbox } = req.query;
+  if (!bbox) return res.status(400).json({ error: 'bbox krävs' });
+  const parts = bbox.split(',').map(Number);
+  if (parts.length !== 4 || parts.some(n => !isFinite(n))) {
+    return res.status(400).json({ error: 'Ogiltig bbox' });
+  }
+  const [minLat, minLon, maxLat, maxLon] = parts;
+  const stops = getStops();
+  const result = stops.filter(s =>
+    s.lat >= minLat && s.lat <= maxLat &&
+    s.lon >= minLon && s.lon <= maxLon
+  );
+  res.json(result);
+});
+
 // ── Cache för Samtrafikens GTFS-RT (minskar externa API-anrop) ───
 const CACHE_TTL = 8000; // 8 sekunder
 let _cache = { vehicles: null, timestamp: 0, inflight: null };
