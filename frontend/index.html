@@ -929,11 +929,21 @@
           const color    = getTrainColor(lineName);
           const icon = makeTrainIcon(lineName, bearing, ageOld);
 
+          const speed = train.position.speed;
           const popup = `<div class="popup-wrapper">
             <div class="popup-header" style="background:${color};color:#fff;">
-              ${lineName}${train.routeLongName ? ` <span style="opacity:.75;font-weight:600;font-size:12px;">${train.routeLongName}</span>` : ''}
+              ${lineName}
             </div>
+            ${train.routeLongName ? `<div class="popup-long-name">${train.routeLongName}</div>` : ''}
             <div class="popup-body">
+              <div class="popup-row">
+                <span class="popup-row-label">Tågnr</span>
+                <span class="popup-row-value">${trainId}</span>
+              </div>
+              ${speed > 0 ? `<div class="popup-row">
+                <span class="popup-row-label">Hastighet</span>
+                <span class="popup-row-value">${speed} km/h</span>
+              </div>` : ''}
               <div class="popup-row">
                 <span class="popup-row-label">GPS-tid</span>
                 <span class="popup-row-value">${timestamp}</span>
@@ -952,7 +962,7 @@
             existing.marker.setPopupContent(popup);
             existing.seen = true;
           } else {
-            const marker = L.marker([lat, lon], { icon, zIndexOffset: 900 })
+            const marker = L.marker([lat, lon], { icon, zIndexOffset: 1100 })
               .bindPopup(popup)
               .addTo(trainsGroup);
             trainMarkers[trainId] = { marker, animFrame: null, lat, lng: lon, seen: true };

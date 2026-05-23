@@ -24,11 +24,14 @@ const API_URL = 'https://api.trafikinfo.trafikverket.se/v2/data.json';
 // ── Geografisk avgränsning (SWEREF99TM, meter) ──────────────────
 // Täcker Gävleborg + angränsande järnväg med marginal
 const BBOX_SWEREF = { minE: 250000, minN: 6560000, maxE: 800000, maxN: 7010000 };
-// WGS84-motsvarighet (för stationsladdning och debugging)
-const BBOX_WGS84 = '14.5 59.5, 19.0 62.8';
+// WGS84 för stationsladdning — hela Sverige (namnuppslagning inkl. destinationer)
+const BBOX_WGS84_ALL = '10.5 55.5, 24.0 69.0';
+// Smalare region för interpolationsfiltret (TrainAnnouncement IN-lista)
+const BBOX_REGION = { minLat: 59.5, maxLat: 63.5, minLon: 13.0, maxLon: 21.0 };
 
 // ── Stationskoordinat-cache ─────────────────────────────────────
-let stationCoords  = {};
+let stationCoords  = {};  // Alla svenska stationer → { lat, lon, name }
+let regionSigs     = [];  // Koder för regionsstationer (interpolationsfilter)
 let stationsLoaded = false;
 
 // ── TrainPosition-tillgänglighet ────────────────────────────────
@@ -38,7 +41,8 @@ let gpsAvailable = true;
 
 // ── Positionscache ──────────────────────────────────────────────
 const CACHE_TTL = 20000; // 20 s (GPS behöver tätare uppdatering än interpolation)
-let _cache = { trains: null, timestamp: 0 };
+let _cache       = { trains: null, timestamp: 0 };
+let _enrichCache = { data: null, timestamp: 0 };  // Linje/rutt-cache för GPS-tåg
 
 // ── Hjälpfunktioner ─────────────────────────────────────────────
 
@@ -104,8 +108,9 @@ function eventTime(ann) {
 // ── Stationshämtning (för interpolationsfallback) ───────────────
 
 /**
- * Hämta och cacha alla stationer inom regionen.
- * Används av interpolationsfallbacken (TrainAnnouncement).
+ * Hämta och cacha stationer.
+ * Laddar hela Sverige för namnuppslagning; bygger en smalare regionlista
+ * för IN-filtret i interpolationsfallbacken.
  */
 async function initStations() {
   if (!API_KEY) return;
@@ -113,9 +118,9 @@ async function initStations() {
     const data = await tvRequest(`<?xml version="1.0" encoding="UTF-8"?>
 <REQUEST>
   <LOGIN authenticationkey="${API_KEY}"/>
-  <QUERY objecttype="TrainStation" schemaversion="1" limit="500">
+  <QUERY objecttype="TrainStation" schemaversion="1" limit="2000">
     <FILTER>
-      <WITHIN name="Geometry.WGS84" shape="box" value="${BBOX_WGS84}"/>
+      <WITHIN name="Geometry.WGS84" shape="box" value="${BBOX_WGS84_ALL}"/>
     </FILTER>
     <INCLUDE>LocationSignature</INCLUDE>
     <INCLUDE>AdvertisedLocationName</INCLUDE>
@@ -134,10 +139,119 @@ async function initStations() {
         };
       }
     });
+
+    // Region-subset för interpolationsfilter (smalare bbox)
+    regionSigs = Object.entries(stationCoords)
+      .filter(([, s]) =>
+        s.lat >= BBOX_REGION.minLat && s.lat <= BBOX_REGION.maxLat &&
+        s.lon >= BBOX_REGION.minLon && s.lon <= BBOX_REGION.maxLon
+      )
+      .map(([sig]) => sig);
+
     stationsLoaded = true;
-    console.log(`Trafikverket: ${Object.keys(stationCoords).length} stationer laddade`);
+    console.log(`Trafikverket: ${Object.keys(stationCoords).length} stationer laddade (${regionSigs.length} i regionen)`);
   } catch (e) {
     console.error('Trafikverket stations-fel:', e.message);
+  }
+}
+
+// ── Enrichment: linje- och ruttinfo via TrainAnnouncement ───────
+
+/**
+ * Hämta linje- och ruttinfo för en lista tågnummer via TrainAnnouncement.
+ * Returnerar map: trainId → { fromStation, toStation, lineName, operator }
+ * Cache: 60 s.
+ */
+async function fetchEnrichmentMap(trainIds) {
+  if (!trainIds || trainIds.length === 0) return {};
+
+  const now = Date.now();
+  if (_enrichCache.data && now - _enrichCache.timestamp < 60000) return _enrichCache.data;
+
+  if (!stationsLoaded) await initStations();
+
+  try {
+    // Filtrera bort koordinat-ID:n (används som fallback när tågnummer saknas)
+    const ids = [...new Set(trainIds)].filter(id => !/^\d+\.\d+,/.test(id)).slice(0, 400);
+    if (ids.length === 0) return {};
+
+    const data = await tvRequest(`<?xml version="1.0" encoding="UTF-8"?>
+<REQUEST>
+  <LOGIN authenticationkey="${API_KEY}"/>
+  <QUERY objecttype="TrainAnnouncement" schemaversion="1.9" limit="2000" orderby="AdvertisedTimeAtLocation">
+    <FILTER>
+      <AND>
+        <GT name="AdvertisedTimeAtLocation" value="$dateadd(-2:00:0)"/>
+        <LT name="AdvertisedTimeAtLocation" value="$dateadd(1:30:0)"/>
+        <IN name="AdvertisedTrainIdent" value="${ids.join(',')}"/>
+        <EQ name="Canceled" value="false"/>
+      </AND>
+    </FILTER>
+    <INCLUDE>AdvertisedTrainIdent</INCLUDE>
+    <INCLUDE>ActivityType</INCLUDE>
+    <INCLUDE>TimeAtLocation</INCLUDE>
+    <INCLUDE>AdvertisedTimeAtLocation</INCLUDE>
+    <INCLUDE>EstimatedTimeAtLocation</INCLUDE>
+    <INCLUDE>LocationSignature</INCLUDE>
+    <INCLUDE>ProductInformation</INCLUDE>
+    <INCLUDE>Operator</INCLUDE>
+    <INCLUDE>ToLocation</INCLUDE>
+  </QUERY>
+</REQUEST>`);
+
+    const announcements = data?.RESPONSE?.RESULT?.[0]?.TrainAnnouncement || [];
+    console.log(`Trafikverket enrichment: ${announcements.length} aviseringar för ${ids.length} tåg`);
+
+    const byTrain = {};
+    announcements.forEach(ann => {
+      const id = ann.AdvertisedTrainIdent;
+      if (!id) return;
+      if (!byTrain[id]) byTrain[id] = [];
+      byTrain[id].push(ann);
+    });
+
+    const infoMap = {};
+    Object.entries(byTrain).forEach(([trainId, anns]) => {
+      anns.sort((a, b) => new Date(eventTime(a)) - new Date(eventTime(b)));
+
+      // Senaste bekräftade avgång = startstation
+      const departed = anns.filter(a => a.ActivityType === 'Avgang' && a.TimeAtLocation).at(-1);
+
+      // Destination från ToLocation (ToLocation.LocationName = stations-signatur)
+      let toName = null;
+      for (const ann of [...anns].reverse()) {
+        const toLocs = [].concat(ann.ToLocation || []);
+        if (toLocs.length) {
+          const sig = toLocs.sort((a, b) => (a.Priority || 0) - (b.Priority || 0))[0]?.LocationName;
+          if (sig) {
+            toName = stationCoords[sig]?.name || sig;  // Signaturen som fallback
+            break;
+          }
+        }
+      }
+
+      const fromName = stationCoords[departed?.LocationSignature]?.name || null;
+
+      const products = [].concat(
+        departed?.ProductInformation ||
+        anns.find(a => a.ProductInformation)?.ProductInformation ||
+        []
+      );
+      const lineName = products
+        .flatMap(p => [p.Description, p.Code].filter(Boolean))
+        .find(Boolean) || null;
+
+      const operator = departed?.Operator || anns[0]?.Operator || null;
+
+      infoMap[trainId] = { fromStation: fromName, toStation: toName, lineName, operator };
+    });
+
+    _enrichCache = { data: infoMap, timestamp: now };
+    return infoMap;
+
+  } catch (e) {
+    console.warn('Trafikverket enrichment-fel:', e.message);
+    return {};
   }
 }
 
@@ -209,13 +323,29 @@ async function fetchGpsTrainPositions() {
           speed: speedKmh,
         },
         timestamp:    { low: Math.floor(tsMs / 1000) },
-        lineName:     'Tåg',     // ProductInformation ej tillgänglig i TrainPosition
+        lineName:     'Tåg',
         routeLongName: null,
         operator:      null,
         type: 'train',
         source: 'gps',
       });
     });
+
+    // Berika med linje- och ruttinfo från TrainAnnouncement
+    try {
+      const enrichMap = await fetchEnrichmentMap(trains.map(t => t.id));
+      trains.forEach(t => {
+        const info = enrichMap[t.id];
+        if (!info) return;
+        if (info.lineName)  t.lineName = info.lineName;
+        if (info.operator)  t.operator = info.operator;
+        if (info.fromStation || info.toStation) {
+          t.routeLongName = [info.fromStation, info.toStation].filter(Boolean).join(' → ');
+        }
+      });
+    } catch (e) {
+      console.warn('TrainPosition enrichment misslyckades:', e.message);
+    }
 
     return trains;
 
@@ -246,7 +376,7 @@ async function fetchGpsTrainPositions() {
  */
 async function fetchInterpolatedTrainPositions() {
   if (!stationsLoaded) await initStations();
-  const sigs = Object.keys(stationCoords);
+  const sigs = regionSigs.length > 0 ? regionSigs : Object.keys(stationCoords);
   if (sigs.length === 0) return [];
 
   const data = await tvRequest(`<?xml version="1.0" encoding="UTF-8"?>
