@@ -41,7 +41,7 @@ let gpsAvailable = true;
 
 // ── Positionscache ──────────────────────────────────────────────
 const CACHE_TTL = 20000; // 20 s (GPS behöver tätare uppdatering än interpolation)
-let _cache       = { trains: null, timestamp: 0 };
+let _cache       = { trains: null, timestamp: 0, inflight: null };
 let _enrichCache = { data: null, timestamp: 0 };  // Linje/rutt-cache för GPS-tåg
 
 // ── Hjälpfunktioner ─────────────────────────────────────────────
@@ -487,23 +487,32 @@ async function fetchTrainPositions() {
   const ttl = gpsAvailable ? CACHE_TTL : 30000;
   if (_cache.trains && (now - _cache.timestamp) < ttl) return _cache.trains;
 
-  try {
-    // Försök GPS-källan om prenumeration kan vara aktiv
-    const gpsTrains = await fetchGpsTrainPositions();
-    if (gpsTrains !== null) {
-      _cache = { trains: gpsTrains, timestamp: Date.now() };
-      return gpsTrains;
+  // Vänta på pågående anrop istället för att starta ett nytt
+  if (_cache.inflight) return _cache.inflight;
+
+  _cache.inflight = (async () => {
+    try {
+      // Försök GPS-källan om prenumeration kan vara aktiv
+      const gpsTrains = await fetchGpsTrainPositions();
+      if (gpsTrains !== null) {
+        _cache = { trains: gpsTrains, timestamp: Date.now(), inflight: null };
+        return gpsTrains;
+      }
+
+      // Fallback: interpolerade positioner
+      const trains = await fetchInterpolatedTrainPositions();
+      _cache = { trains, timestamp: Date.now(), inflight: null };
+      return trains;
+
+    } catch (e) {
+      console.error('Trafikverket fetch-fel:', e.message);
+      const fallback = _cache.trains || [];
+      _cache = { trains: fallback, timestamp: _cache.timestamp, inflight: null };
+      return fallback;
     }
+  })();
 
-    // Fallback: interpolerade positioner
-    const trains = await fetchInterpolatedTrainPositions();
-    _cache = { trains, timestamp: Date.now() };
-    return trains;
-
-  } catch (e) {
-    console.error('Trafikverket fetch-fel:', e.message);
-    return _cache.trains || [];
-  }
+  return _cache.inflight;
 }
 
 module.exports = { initStations, fetchTrainPositions };
