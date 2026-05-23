@@ -32,10 +32,9 @@ let stationCoords  = {};
 let stationsLoaded = false;
 
 // ── TrainPosition-tillgänglighet ────────────────────────────────
-// Sätt till true när "TrainPosition" är aktiverad i DataCache-prenumerationen:
-//   https://data.trafikverket.se  →  Mina prenumerationer  →  TrainPosition
-// Tills dess används interpolationsfallbacken.
-let gpsAvailable = false;
+// Kräver namespace="järnväg.trafikinfo" i QUERY-elementet — utan det ges
+// "ObjectType 'TrainPosition' does not exists." trots att nyckeln fungerar.
+let gpsAvailable = true;
 
 // ── Positionscache ──────────────────────────────────────────────
 const CACHE_TTL = 20000; // 20 s (GPS behöver tätare uppdatering än interpolation)
@@ -162,16 +161,16 @@ async function fetchGpsTrainPositions() {
     const data = await tvRequest(`<?xml version="1.0" encoding="UTF-8"?>
 <REQUEST>
   <LOGIN authenticationkey="${API_KEY}"/>
-  <QUERY objecttype="TrainPosition" schemaversion="1.1" limit="200">
+  <QUERY namespace="järnväg.trafikinfo" objecttype="TrainPosition" schemaversion="1.1" limit="500">
     <FILTER>
       <AND>
         <EQ name="Deleted" value="false"/>
+        <GT name="TimeStamp" value="$dateadd(-0:30:0)"/>
         <WITHIN name="Position.SWEREF99TM" shape="box" value="${minE} ${minN}, ${maxE} ${maxN}"/>
       </AND>
     </FILTER>
     <INCLUDE>Train.AdvertisedTrainNumber</INCLUDE>
-    <INCLUDE>Train.Operator</INCLUDE>
-    <INCLUDE>Train.PlannedDepartureDateTimeAtOrigin</INCLUDE>
+    <INCLUDE>Train.OperationalTrainNumber</INCLUDE>
     <INCLUDE>Position.WGS84</INCLUDE>
     <INCLUDE>Position.SWEREF99TM</INCLUDE>
     <INCLUDE>Speed</INCLUDE>
@@ -200,8 +199,6 @@ async function fetchGpsTrainPositions() {
       const tsMs    = tsStr ? new Date(tsStr).getTime() : nowMs;
       const bearing = typeof p.Bearing === 'number' ? p.Bearing : 0;
       const speedKmh = typeof p.Speed === 'number' ? Math.round(p.Speed) : 0;
-      const operator = p?.Train?.Operator || null;
-
       trains.push({
         id:      trainId,
         vehicle: { id: trainId },
@@ -214,7 +211,7 @@ async function fetchGpsTrainPositions() {
         timestamp:    { low: Math.floor(tsMs / 1000) },
         lineName:     'Tåg',     // ProductInformation ej tillgänglig i TrainPosition
         routeLongName: null,
-        operator,
+        operator:      null,
         type: 'train',
         source: 'gps',
       });
