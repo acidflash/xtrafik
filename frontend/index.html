@@ -115,9 +115,8 @@
       display: flex !important;
       align-items: center; justify-content: center;
       color: #333; text-decoration: none;
-      transition: color 120ms ease-out;
+      transition: color 120ms ease;
     }
-    .train-toggle-control a:hover { color: var(--color-accent); }
     .train-toggle-control a.active { color: oklch(42% 0.14 260); }
     [data-theme="dark"] .train-toggle-control a { color: oklch(80% 0.01 260); }
     [data-theme="dark"] .train-toggle-control a.active { color: oklch(65% 0.14 260); }
@@ -168,9 +167,8 @@
       font-weight: 600;
       font-family: inherit;
       cursor: pointer;
-      transition: background-color 150ms ease-out, transform 100ms ease-out;
+      transition: background-color 150ms ease, transform 100ms ease-out;
     }
-    .btn-primary:hover { background: var(--color-accent-hover); }
     .btn-primary:active { transform: scale(0.97); }
 
     .btn-ghost {
@@ -182,11 +180,7 @@
       font-size: 13px;
       font-family: inherit;
       cursor: pointer;
-      transition: border-color 150ms ease-out, color 150ms ease-out, transform 100ms ease-out;
-    }
-    .btn-ghost:hover {
-      border-color: oklch(68% 0.01 260);
-      color: var(--color-text);
+      transition: border-color 150ms ease, color 150ms ease, transform 100ms ease-out;
     }
     .btn-ghost:active { transform: scale(0.97); }
 
@@ -232,11 +226,10 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      transition: background-color 120ms ease-out, transform 100ms ease-out;
+      transition: background-color 120ms ease, transform 100ms ease-out;
       position: relative;
     }
-    .filter-fab-btn:hover  { background: var(--color-accent-hover); }
-    .filter-fab-btn:active { transform: scale(0.93); }
+    .filter-fab-btn:active { transform: scale(0.96); }
     .filter-fab-btn.has-filter::after {
       content: '';
       position: absolute;
@@ -299,12 +292,11 @@
     .update-indicator {
       font-size: 11px;
       color: var(--color-text-muted);
-      transition: background-color 200ms ease-out, color 200ms ease-out;
+      transition: background-color 200ms ease, color 200ms ease;
       min-width: 180px;
       cursor: pointer;
       user-select: none;
     }
-    .update-indicator:hover { color: var(--color-accent); }
     .update-indicator.flash {
       background: var(--color-surface);
       color: var(--color-accent);
@@ -357,7 +349,7 @@
     }
 
     /* ── Linjemarkering (dimma ej-valda bussar) ─────────────────── */
-    .bus-icon-new { transition: opacity 200ms ease-out, filter 200ms ease-out; }
+    .bus-icon-new { transition: opacity 200ms ease-out; }
     .bus-icon-new.dimmed { opacity: 0.15; filter: grayscale(80%); }
     .bus-icon-new.stale { opacity: 0.5; filter: grayscale(50%); }
 
@@ -443,20 +435,30 @@
       justify-content: center;
       color: #333;
       text-decoration: none;
-      transition: color 120ms ease-out;
+      transition: color 120ms ease;
     }
-    .locate-control a:hover,
-    .dark-toggle-control a:hover { color: var(--color-accent); }
     [data-theme="dark"] .locate-control a,
     [data-theme="dark"] .dark-toggle-control a { color: oklch(80% 0.01 260); }
     .locate-control a.locating { color: var(--color-accent); animation: pulse-icon 1s ease-in-out infinite; }
     @keyframes pulse-icon { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+    /* ── Hover (pekdon med hover-stöd) ─────────────────────────── */
+    @media (hover: hover) and (pointer: fine) {
+      .train-toggle-control a:hover { color: var(--color-accent); }
+      .btn-primary:hover { background: var(--color-accent-hover); }
+      .btn-ghost:hover { border-color: oklch(68% 0.01 260); color: var(--color-text); }
+      .filter-fab-btn:hover { background: var(--color-accent-hover); }
+      .update-indicator:hover { color: var(--color-accent); }
+      .locate-control a:hover,
+      .dark-toggle-control a:hover { color: var(--color-accent); }
+    }
 
     /* ── Accessibility ──────────────────────────────────────────── */
     @media (prefers-reduced-motion: reduce) {
       .update-indicator,
       .btn-primary,
       .btn-ghost,
+      .filter-sheet,
       .filter-input { transition: none; }
       .locate-control a.locating { animation: none; }
     }
@@ -1199,7 +1201,7 @@
           background: ${isActive ? '#fff' : color};
           color: ${isActive ? color : '#fff'};
           box-shadow: ${isActive ? `0 0 0 2px ${color}` : '0 1px 4px rgba(0,0,0,0.25)'};
-          transition: transform 120ms ease-out, box-shadow 120ms;
+          transition: transform 120ms ease-out, box-shadow 120ms ease;
         `;
         chip.addEventListener('touchstart', () => { chip.style.transform = 'scale(0.95)'; }, { passive: true });
         chip.addEventListener('touchend', () => { chip.style.transform = ''; }, { passive: true });
