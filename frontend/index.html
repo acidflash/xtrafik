@@ -1465,11 +1465,11 @@
           // Popup
           let popup = `<div class="popup-wrapper">
             <div class="popup-header" style="background:${busColor};color:${textColor};">
-              Linje ${displayNumber}${vehicle.headsign ? ` <span style="opacity:0.75;font-weight:600;">→ ${vehicle.headsign}</span>` : ''}
+              Linje ${esc(displayNumber)}${vehicle.headsign ? ` <span style="opacity:0.75;font-weight:600;">→ ${esc(vehicle.headsign)}</span>` : ''}
             </div>`;
 
           if (vehicle.routeLongName && vehicle.routeLongName !== vehicle.headsign) {
-            popup += `<p class="popup-long-name">${vehicle.routeLongName}</p>`;
+            popup += `<p class="popup-long-name">${esc(vehicle.routeLongName)}</p>`;
           }
 
           popup += `<div class="popup-body">
@@ -1489,7 +1489,7 @@
           if (vehicle.routeInfo?.agency) {
             popup += `<div class="popup-row">
               <span class="popup-row-label">Operatör</span>
-              <span class="popup-row-value">${vehicle.routeInfo.agency}</span>
+              <span class="popup-row-value">${esc(vehicle.routeInfo.agency)}</span>
             </div>`;
           }
 
@@ -1529,7 +1529,7 @@
                   padding:1px 5px;font-weight:bold;font-size:${numSz}px;z-index:20;
                   min-width:${numSz}px;text-align:center;box-shadow:0 0 4px rgba(0,0,0,0.8);
                   white-space:nowrap;">
-                  ${displayNumber}
+                  ${esc(displayNumber)}
                 </div>
               </div>`,
             className: `bus-icon-new${ageOld ? ' stale' : ''}`,
