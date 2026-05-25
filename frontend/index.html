@@ -383,7 +383,8 @@
     .leaflet-popup-tip-container { margin-top: -1px; }
 
     .popup-wrapper {
-      min-width: 210px;
+      min-width: 240px;
+      max-width: 280px;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
     }
     .popup-header {
@@ -427,6 +428,114 @@
       font-weight: 600;
       color: var(--color-text);
       text-align: right;
+    }
+
+    /* ── Turtabell (hållplatslista i popup) ─────────────────────── */
+    .popup-stops {
+      border-top: 1px solid var(--color-row-divider);
+    }
+    .popup-stops-title {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--color-text-muted);
+      padding: var(--sp-2) var(--sp-4) var(--sp-1);
+    }
+    .popup-stops-list {
+      max-height: 200px;
+      overflow-y: auto;
+      padding: 0 0 var(--sp-2);
+      /* Scrollbar liten och diskret */
+      scrollbar-width: thin;
+      scrollbar-color: var(--color-row-divider) transparent;
+    }
+    .stop-row {
+      display: flex;
+      align-items: center;
+      gap: var(--sp-2);
+      padding: 3px var(--sp-4);
+      position: relative;
+    }
+    .stop-row::before {
+      /* Vertikal tidslinje-stripe */
+      content: '';
+      position: absolute;
+      left: 20px;
+      top: 0;
+      bottom: 0;
+      width: 2px;
+      background: var(--color-row-divider);
+    }
+    .stop-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      border: 2px solid var(--color-row-divider);
+      background: var(--color-bg);
+      flex-shrink: 0;
+      position: relative;
+      z-index: 1;
+      margin-left: 2px;
+    }
+    .stop-time {
+      font-size: 11px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      color: var(--color-text-muted);
+      min-width: 34px;
+      flex-shrink: 0;
+    }
+    .stop-name {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--color-text-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 160px;
+    }
+    .stop-request-badge {
+      font-size: 9px;
+      font-weight: 700;
+      background: oklch(92% 0.04 60);
+      color: oklch(45% 0.12 60);
+      border-radius: 3px;
+      padding: 1px 3px;
+      flex-shrink: 0;
+    }
+    [data-theme="dark"] .stop-request-badge {
+      background: oklch(30% 0.08 60);
+      color: oklch(75% 0.12 60);
+    }
+    /* Avklarad hållplats */
+    .stop-row.stop-past .stop-time,
+    .stop-row.stop-past .stop-name { opacity: 0.35; }
+    .stop-row.stop-past .stop-dot {
+      background: var(--color-row-divider);
+    }
+    /* Nästa hållplats (current) */
+    .stop-row.stop-current .stop-time { color: var(--color-text); }
+    .stop-row.stop-current .stop-name {
+      color: var(--color-text);
+      font-weight: 700;
+    }
+    .stop-row.stop-current .stop-dot {
+      border-color: var(--stop-accent, #1c65b0);
+      background: var(--stop-accent, #1c65b0);
+      box-shadow: 0 0 0 3px color-mix(in oklch, var(--stop-accent, #1c65b0) 25%, transparent);
+    }
+    .stop-row.stop-current::before { background: var(--stop-accent, #1c65b0); opacity: 0.4; }
+    /* Kommande hållplatser */
+    .stop-row.stop-future .stop-time { color: var(--color-text); }
+    .stop-row.stop-future .stop-name { color: var(--color-text); }
+    .stop-row.stop-future .stop-dot { border-color: oklch(65% 0.04 260); }
+    /* Inläsnings-placeholder */
+    .popup-stops-loading {
+      padding: var(--sp-2) var(--sp-4) var(--sp-3);
+      font-size: 11px;
+      color: var(--color-text-muted);
+      font-style: italic;
     }
 
     /* ── Locate control ─────────────────────────────────────────── */
@@ -1515,6 +1624,70 @@
       }
     }
 
+    // ── Turtabell ────────────────────────────────────────────────
+    // Sekunder sedan midnatt för aktuell lokal tid
+    function nowSec() {
+      const d = new Date();
+      return d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds();
+    }
+
+    // Injicera hållplatslistan i en öppen popup
+    async function showStopTimes(tripId, color) {
+      // Hitta popup-containern (Leaflet håller den i DOM)
+      const injectList = (html) => {
+        const el = document.querySelector('.popup-stops-loading, .popup-stops-list');
+        if (el) el.outerHTML = html;
+      };
+
+      if (!tripId) return;
+      try {
+        const resp = await fetch(`/api/stoptimes?tripId=${encodeURIComponent(tripId)}`);
+        if (!resp.ok) return;
+        const stops = await resp.json();
+        if (!Array.isArray(stops) || stops.length === 0) return;
+
+        const now = nowSec();
+        // Hitta "nästa" hållplats = första vars dep >= now (tolerans –60 s för lite förseningar)
+        let currentIdx = stops.findIndex(s => s.dep >= now - 60);
+        if (currentIdx < 0) currentIdx = stops.length - 1; // alla avklarade
+
+        const accentCss = `style="--stop-accent:${color || '#1c65b0'}"`;
+
+        const rows = stops.map((s, i) => {
+          let cls = 'stop-future';
+          if (i < currentIdx)      cls = 'stop-past';
+          else if (i === currentIdx) cls = 'stop-current';
+
+          const badge = s.request
+            ? `<span class="stop-request-badge">Anrop</span>`
+            : '';
+          const nextDay = s.nextDay ? `<span style="font-size:9px;opacity:.6"> +1</span>` : '';
+
+          return `<div class="stop-row ${cls}" ${i === currentIdx ? accentCss : ''}>
+            <div class="stop-dot"></div>
+            <span class="stop-time">${esc(s.depStr)}${nextDay}</span>
+            <span class="stop-name">${esc(s.name)}</span>
+            ${badge}
+          </div>`;
+        }).join('');
+
+        const listHtml = `<div class="popup-stops-list">${rows}</div>`;
+        injectList(listHtml);
+
+        // Scrolla till nästa hållplats
+        requestAnimationFrame(() => {
+          const list = document.querySelector('.popup-stops-list');
+          const cur  = list?.querySelector('.stop-current');
+          if (list && cur) {
+            const offset = cur.offsetTop - list.clientHeight / 2 + cur.clientHeight / 2;
+            list.scrollTop = Math.max(0, offset);
+          }
+        });
+      } catch (e) {
+        console.warn('Turtabell:', e.message);
+      }
+    }
+
     // ── Main fetch ───────────────────────────────────────────────
     async function fetchData() {
       if (isFetching) return;
@@ -1664,7 +1837,17 @@
             </div>`;
           }
 
-          popup += `</div></div>`;
+          popup += `</div>`;
+
+          // Turtabell — visa alltid om tripId finns; listan fylls async efter popup öppnas
+          if (tripId) {
+            popup += `<div class="popup-stops">
+              <div class="popup-stops-title">Hållplatser</div>
+              <div class="popup-stops-loading">Laddar...</div>
+            </div>`;
+          }
+
+          popup += `</div>`;
 
           // Bus icon med utskjutande riktningspil (zoom-anpassad storlek)
           const { sz, busW, busH, arrW, arrH, numSz } = getIconDims();
@@ -1728,11 +1911,12 @@
               const entry = vehicleMarkers[vehicleId];
               if (highlightedRoute === routeKey) {
                 clearHighlight();
-                clearRouteShape();
               } else {
                 applyHighlight(routeKey);
                 const cur = entry?.marker.getLatLng();
                 showRouteShape(entry?.tripId, cur?.lat ?? lat, cur?.lng ?? lon, entry?.busColor ?? busColor);
+                // Turtabell laddas async och injiceras i öppen popup
+                if (entry?.tripId) showStopTimes(entry.tripId, entry.busColor ?? busColor);
               }
             });
             vehicleMarkers[vehicleId] = { marker, animFrame: null, lat, lng: lon, seen: true, tripId, busColor };

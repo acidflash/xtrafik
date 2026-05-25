@@ -25,6 +25,9 @@ let blockToRouteMap = {}; // block_id -> route_id
 let agencyMap = {}; // agency_id -> agency_name
 let shapeMap = {}; // shape_id -> { lats: number[], lons: number[] }
 let shapesLoaded = false;
+let stopNamesMap = {}; // stop_id -> stop_name
+let stopTimesMap = {}; // trip_id -> [{seq, stopId, dep, request}]  dep = sekunder efter midnatt
+let stopTimesLoaded = false;
 
 // Tid för senaste uppdatering och uppdateringsintervall (7 dagar i millisekunder)
 let lastUpdateTime = 0;
@@ -382,6 +385,74 @@ function parseShapesData() {
 }
 
 /**
+ * Parse stops.txt för snabb stop_id → stop_name-uppslagning
+ */
+function parseStopNamesData() {
+  const stopsFile = path.join(GTFS_EXTRACT_PATH, 'stops.txt');
+  if (!fs.existsSync(stopsFile)) return Promise.resolve();
+  return new Promise((resolve) => {
+    const tmp = {};
+    fs.createReadStream(stopsFile)
+      .pipe(csv())
+      .on('data', (row) => {
+        if (row.stop_id && row.stop_name) tmp[row.stop_id] = row.stop_name.trim();
+      })
+      .on('end', () => {
+        stopNamesMap = tmp;
+        console.log(`${Object.keys(stopNamesMap).length} hållplatsnamn inlästa`);
+        resolve();
+      })
+      .on('error', (err) => { console.error('stop names:', err.message); resolve(); });
+  });
+}
+
+/**
+ * Parse stop_times.txt och bygg index: trip_id → sorterad turtabell
+ * dep lagras som sekunder sedan midnatt (hanterar > 24h korrekt).
+ */
+function parseStopTimesData() {
+  const stFile = path.join(GTFS_EXTRACT_PATH, 'stop_times.txt');
+  if (!fs.existsSync(stFile)) {
+    console.log('stop_times.txt saknas – turtabeller ej tillgängliga');
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    console.log('Parsning av stop_times.txt...');
+    const tmp = {}; // trip_id → [{seq, stopId, dep, request}]
+
+    const toSec = (t) => {
+      // "HH:MM:SS" → sekunder sedan midnatt (stödjer > 24h)
+      const [h, m, s] = t.split(':').map(Number);
+      return h * 3600 + m * 60 + (s || 0);
+    };
+
+    fs.createReadStream(stFile)
+      .pipe(csv())
+      .on('data', (row) => {
+        const tripId = row.trip_id;
+        if (!tripId) return;
+        const dep = toSec(row.departure_time || row.arrival_time || '0:0:0');
+        const seq = parseInt(row.stop_sequence) || 0;
+        // request = anropsstopp (pickup 3 = ringa chauffören, drop_off 3 = liknande)
+        const request = row.pickup_type === '3' || row.drop_off_type === '3';
+        if (!tmp[tripId]) tmp[tripId] = [];
+        tmp[tripId].push({ seq, stopId: row.stop_id, dep, request });
+      })
+      .on('end', () => {
+        // Sortera varje tur på sekvensnummer (ska redan vara sorterat men säkra det)
+        for (const tid of Object.keys(tmp)) {
+          tmp[tid].sort((a, b) => a.seq - b.seq);
+        }
+        stopTimesMap = tmp;
+        stopTimesLoaded = true;
+        console.log(`Turtabeller inlästa: ${Object.keys(stopTimesMap).length} turer`);
+        resolve();
+      })
+      .on('error', (err) => { console.error('stop_times:', err.message); resolve(); });
+  });
+}
+
+/**
  * Returnerar ruttform (array av [lat, lon]-par) för ett trip_id.
  * Returnerar null om shapes inte laddats ännu eller saknas.
  */
@@ -392,6 +463,28 @@ function getShapeForTrip(tripId) {
   if (!s) return null;
   // Returnera som kompakt array av [lat, lon]-par
   return s.lats.map((lat, i) => [lat, s.lons[i]]);
+}
+
+/**
+ * Returnerar turtabell för ett trip_id.
+ * Varje stopp: { seq, name, dep (sek), depStr ("HH:MM"), request (bool) }
+ */
+function getStopTimesForTrip(tripId) {
+  const stops = stopTimesMap[tripId];
+  if (!stops) return null;
+  return stops.map(s => {
+    const h = Math.floor(s.dep / 3600);
+    const m = Math.floor((s.dep % 3600) / 60);
+    return {
+      seq:     s.seq,
+      stopId:  s.stopId,
+      name:    stopNamesMap[s.stopId] || s.stopId,
+      dep:     s.dep,
+      depStr:  `${String(h % 24).padStart(2, '0')}:${String(m).padStart(2, '0')}`,
+      nextDay: h >= 24,
+      request: s.request,
+    };
+  });
 }
 
 /**
@@ -525,8 +618,11 @@ async function loadGtfsData(forceRefresh = false) {
 
     console.log('GTFS-data laddad och redo att användas!');
 
-    // Ladda shapes i bakgrunden (57 MB, tar 2-5 s) utan att blockera API
-    parseShapesData().catch(err => console.error('shapes-laddning misslyckades:', err.message));
+    // Ladda shapes och stop_times i bakgrunden utan att blockera API
+    Promise.all([
+      parseShapesData(),
+      parseStopNamesData().then(() => parseStopTimesData()),
+    ]).catch(err => console.error('Bakgrundsladdning misslyckades:', err.message));
     
     // Ställ in automatisk uppdatering
     scheduleNextRefresh();
@@ -743,4 +839,6 @@ module.exports = {
   getRouteLongNameFromRouteId,
   getShapeForTrip,
   isShapesLoaded: () => shapesLoaded,
+  getStopTimesForTrip,
+  isStopTimesLoaded: () => stopTimesLoaded,
 };

@@ -312,6 +312,21 @@ app.get('/api/version', (req, res) => {
   }
 });
 
+// API-endpoint för turtabell (hållplatslista) för ett specifikt trip_id
+app.get('/api/stoptimes', apiLimiter, (req, res) => {
+  const { tripId } = req.query;
+  if (!tripId) return res.status(400).json({ error: 'tripId krävs' });
+
+  if (!gtfsLoader.isStopTimesLoaded()) {
+    return res.status(503).json({ error: 'Turtabeller laddas fortfarande, försök igen om några sekunder' });
+  }
+
+  const stops = gtfsLoader.getStopTimesForTrip(tripId);
+  if (!stops) return res.status(404).json({ error: 'Ingen turtabell hittades för detta trip_id' });
+
+  res.json(stops);
+});
+
 // API-endpoint för ruttform (polyline) för ett specifikt trip_id
 app.get('/api/shape', apiLimiter, (req, res) => {
   const { tripId } = req.query;
