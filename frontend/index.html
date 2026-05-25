@@ -10,7 +10,9 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="X-trafik">
-  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H"
+        crossorigin="anonymous" />
   <style>
     /* ── Design tokens ──────────────────────────────────────────── */
     :root {
@@ -489,7 +491,9 @@
       <button id="clearFilterMobile" class="btn-ghost">Rensa</button>
     </div>
   </div>
-  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH"
+          crossorigin="anonymous"></script>
   <script>
     // ── URL-hash-position (#lat,lon,zoom) ────────────────────────
     function parseHash() {
@@ -1256,9 +1260,9 @@
           row.innerHTML = `
             <div style="position:relative;flex-shrink:0;width:28px;height:16px;">
               <div style="width:28px;height:16px;background:${color};border-radius:4px;"></div>
-              <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;color:white;text-shadow:0 1px 2px rgba(0,0,0,0.4);">${line}</div>
+              <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;color:white;text-shadow:0 1px 2px rgba(0,0,0,0.4);">${esc(line)}</div>
             </div>
-            <span style="font-size:12px;color:var(--color-text);flex:1;">Linje ${line}</span>
+            <span style="font-size:12px;color:var(--color-text);flex:1;">Linje ${esc(line)}</span>
             <span style="font-size:11px;color:var(--color-text-muted);">${count}</span>`;
           row.addEventListener('mouseover', () => { if (!isActive) row.style.background = 'var(--color-border)'; });
           row.addEventListener('mouseout', () => { if (!isActive) row.style.background = ''; });

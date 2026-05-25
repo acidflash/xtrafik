@@ -351,11 +351,15 @@ function getRouteInfoFromRouteId(routeId) {
  * Returnerar färgkod för en rutt baserat på route_id
  * Om ingen färg finns, returneras 'FFFFFF' (vit)
  */
+const HEX6 = /^[0-9A-Fa-f]{6}$/;
+
 function getRouteColorFromRouteId(routeId) {
   const routeInfo = routeInfoMap[routeId];
   if (!routeInfo) return null;
   // Returnera null om färgen är svart (GTFS-standard när ingen färg angetts)
   if (!routeInfo.color || routeInfo.color === '000000' || routeInfo.color === '000') return null;
+  // Validera att värdet är exakt 6 hex-tecken innan det används i HTML
+  if (!HEX6.test(routeInfo.color)) return null;
   return `#${routeInfo.color}`;
 }
 
@@ -365,7 +369,10 @@ function getRouteColorFromRouteId(routeId) {
  */
 function getRouteTextColorFromRouteId(routeId) {
   const routeInfo = routeInfoMap[routeId];
-  return routeInfo ? `#${routeInfo.textColor}` : '#FFFFFF';
+  if (!routeInfo) return '#FFFFFF';
+  // Validera att värdet är exakt 6 hex-tecken innan det används i HTML
+  if (!HEX6.test(routeInfo.textColor)) return '#FFFFFF';
+  return `#${routeInfo.textColor}`;
 }
 
 /**
