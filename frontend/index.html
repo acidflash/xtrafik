@@ -1666,61 +1666,69 @@
       return d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds();
     }
 
-    // Injicera hållplatslistan i en öppen popup
-    async function showStopTimes(tripId, color) {
-      // Hitta popup-containern (Leaflet håller den i DOM)
-      const injectList = (html) => {
-        const el = document.querySelector('.popup-stops-loading, .popup-stops-list');
-        if (el) el.outerHTML = html;
-      };
+    // Cache: tripId → rådata [{seq,name,dep,depStr,nextDay,request}]
+    const stopTimesCache = new Map();
 
+    // Bygg HTML från cachad rådata (med aktuell tid för past/current/future)
+    function renderStopTimesHtml(stops, color) {
+      const now = nowSec();
+      let currentIdx = stops.findIndex(s => s.dep >= now - 60);
+      if (currentIdx < 0) currentIdx = stops.length - 1;
+
+      const accent = `style="--stop-accent:${color || '#1c65b0'}"`;
+      const rows = stops.map((s, i) => {
+        const cls = i < currentIdx ? 'stop-past' : i === currentIdx ? 'stop-current' : 'stop-future';
+        const badge   = s.request ? `<span class="stop-request-badge">Anrop</span>` : '';
+        const nextDay = s.nextDay  ? `<span style="font-size:9px;opacity:.6"> +1</span>` : '';
+        return `<div class="stop-row ${cls}" ${i === currentIdx ? accent : ''}>
+          <div class="stop-dot"></div>
+          <span class="stop-time">${esc(s.depStr)}${nextDay}</span>
+          <span class="stop-name">${esc(s.name)}</span>
+          ${badge}
+        </div>`;
+      }).join('');
+      return `<div class="popup-stops-list">${rows}</div>`;
+    }
+
+    // Injicera listan i öppen popup (ersätter loading-div eller gammal lista)
+    function injectStopList(html, scrollToCurrent) {
+      const el = document.querySelector('.popup-stops-loading, .popup-stops-list');
+      if (!el) return;
+      el.outerHTML = html;
+      if (scrollToCurrent) requestAnimationFrame(() => {
+        const list = document.querySelector('.popup-stops-list');
+        const cur  = list?.querySelector('.stop-current');
+        if (list && cur) list.scrollTop = Math.max(0, cur.offsetTop - list.clientHeight / 2 + cur.clientHeight / 2);
+      });
+    }
+
+    // Hämta (eller ta från cache) och visa turtabell i öppen popup
+    async function showStopTimes(tripId, color) {
       if (!tripId) return;
+
+      // Cache-träff: rendera direkt med aktuell tid, ingen nätverksresa
+      if (stopTimesCache.has(tripId)) {
+        injectStopList(renderStopTimesHtml(stopTimesCache.get(tripId), color), true);
+        return;
+      }
+
       try {
         const resp = await fetch(`/api/stoptimes?tripId=${encodeURIComponent(tripId)}`);
         if (!resp.ok) return;
         const stops = await resp.json();
         if (!Array.isArray(stops) || stops.length === 0) return;
-
-        const now = nowSec();
-        // Hitta "nästa" hållplats = första vars dep >= now (tolerans –60 s för lite förseningar)
-        let currentIdx = stops.findIndex(s => s.dep >= now - 60);
-        if (currentIdx < 0) currentIdx = stops.length - 1; // alla avklarade
-
-        const accentCss = `style="--stop-accent:${color || '#1c65b0'}"`;
-
-        const rows = stops.map((s, i) => {
-          let cls = 'stop-future';
-          if (i < currentIdx)      cls = 'stop-past';
-          else if (i === currentIdx) cls = 'stop-current';
-
-          const badge = s.request
-            ? `<span class="stop-request-badge">Anrop</span>`
-            : '';
-          const nextDay = s.nextDay ? `<span style="font-size:9px;opacity:.6"> +1</span>` : '';
-
-          return `<div class="stop-row ${cls}" ${i === currentIdx ? accentCss : ''}>
-            <div class="stop-dot"></div>
-            <span class="stop-time">${esc(s.depStr)}${nextDay}</span>
-            <span class="stop-name">${esc(s.name)}</span>
-            ${badge}
-          </div>`;
-        }).join('');
-
-        const listHtml = `<div class="popup-stops-list">${rows}</div>`;
-        injectList(listHtml);
-
-        // Scrolla till nästa hållplats
-        requestAnimationFrame(() => {
-          const list = document.querySelector('.popup-stops-list');
-          const cur  = list?.querySelector('.stop-current');
-          if (list && cur) {
-            const offset = cur.offsetTop - list.clientHeight / 2 + cur.clientHeight / 2;
-            list.scrollTop = Math.max(0, offset);
-          }
-        });
+        stopTimesCache.set(tripId, stops);
+        injectStopList(renderStopTimesHtml(stops, color), true);
       } catch (e) {
         console.warn('Turtabell:', e.message);
       }
+    }
+
+    // Återinjecera från cache efter setPopupContent (ingen scroll — bevara användarens position)
+    function refreshStopTimesInPopup(tripId, color) {
+      if (!tripId || !stopTimesCache.has(tripId)) return;
+      // setTimeout 0 låter Leaflet rita klart popup-DOM:en före injecering
+      setTimeout(() => injectStopList(renderStopTimesHtml(stopTimesCache.get(tripId), color), false), 0);
     }
 
     // ── Main fetch ───────────────────────────────────────────────
@@ -1933,6 +1941,10 @@
             animateMarker(existing, lat, lon);
             existing.marker.setIcon(busIcon);
             existing.marker.setPopupContent(popup);
+            // Om popup är öppen: återinjecera turtabell från cache (undviker "Laddar...")
+            if (existing.marker.isPopupOpen()) {
+              refreshStopTimesInPopup(existing.tripId ?? tripId, existing.busColor ?? busColor);
+            }
             existing.tripId    = tripId;
             existing.busColor  = busColor;
             existing.seen = true;
