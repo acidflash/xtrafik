@@ -515,4 +515,85 @@ async function fetchTrainPositions() {
   return _cache.inflight;
 }
 
-module.exports = { initStations, fetchTrainPositions };
+// ── Turtabell för ett specifikt tåg ────────────────────────────
+
+/** Konvertera ISO-tidstämpel till Stockholm-tid: { dep (sekunder), depStr "HH:MM" } */
+function toStockholmTime(isoStr) {
+  const d = new Date(isoStr);
+  const fmt = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'Europe/Stockholm',
+    hour:     '2-digit',
+    minute:   '2-digit',
+    hour12:   false,
+  });
+  const depStr = fmt.format(d);          // "HH:MM"
+  const [h, m] = depStr.split(':').map(Number);
+  return { dep: h * 3600 + m * 60, depStr };
+}
+
+/**
+ * Hämta turtabell för ett specifikt tåg via TrainAnnouncement.
+ * Returnerar lista av stationer med tider i samma format som buss-turtabellen.
+ *
+ * @param {string} trainIdent - Tågnummer, t.ex. "80" eller "268"
+ * @returns {Promise<Array>} [{seq,name,dep,depStr,nextDay,request,passed}]
+ */
+async function fetchTrainStopTimes(trainIdent) {
+  if (!API_KEY) return [];
+  if (!stationsLoaded) await initStations();
+
+  const data = await tvRequest(`<?xml version="1.0" encoding="UTF-8"?>
+<REQUEST>
+  <LOGIN authenticationkey="${API_KEY}"/>
+  <QUERY objecttype="TrainAnnouncement" schemaversion="1.9" limit="500" orderby="AdvertisedTimeAtLocation">
+    <FILTER>
+      <AND>
+        <GT name="AdvertisedTimeAtLocation" value="$dateadd(-8:00:0)"/>
+        <LT name="AdvertisedTimeAtLocation" value="$dateadd(8:00:0)"/>
+        <EQ name="AdvertisedTrainIdent" value="${trainIdent}"/>
+      </AND>
+    </FILTER>
+    <INCLUDE>ActivityType</INCLUDE>
+    <INCLUDE>TimeAtLocation</INCLUDE>
+    <INCLUDE>AdvertisedTimeAtLocation</INCLUDE>
+    <INCLUDE>EstimatedTimeAtLocation</INCLUDE>
+    <INCLUDE>LocationSignature</INCLUDE>
+  </QUERY>
+</REQUEST>`);
+
+  const announcements = data?.RESPONSE?.RESULT?.[0]?.TrainAnnouncement || [];
+  if (announcements.length === 0) return [];
+
+  // Gruppera per station: Avgang prioriteras över Ankomst (intermediate stops).
+  // Slutstation har bara Ankomst och behålls ändå.
+  const stationMap = {};
+  announcements.forEach(ann => {
+    const sig = ann.LocationSignature;
+    if (!sig) return;
+    const existing = stationMap[sig];
+    if (!existing || (ann.ActivityType === 'Avgang' && existing.ActivityType !== 'Avgang')) {
+      stationMap[sig] = ann;
+    }
+  });
+
+  // Sortera efter annonserad tid
+  const sorted = Object.values(stationMap).sort(
+    (a, b) => new Date(a.AdvertisedTimeAtLocation) - new Date(b.AdvertisedTimeAtLocation)
+  );
+
+  return sorted.map((ann, i) => {
+    const { dep, depStr } = toStockholmTime(ann.AdvertisedTimeAtLocation);
+    return {
+      seq:     i,
+      stopId:  ann.LocationSignature,
+      name:    stationCoords[ann.LocationSignature]?.name || ann.LocationSignature,
+      dep,
+      depStr,
+      nextDay: false,
+      request: false,
+      passed:  !!ann.TimeAtLocation,
+    };
+  });
+}
+
+module.exports = { initStations, fetchTrainPositions, fetchTrainStopTimes };

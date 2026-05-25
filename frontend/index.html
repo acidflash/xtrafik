@@ -1093,6 +1093,10 @@
                 <span class="popup-row-value" style="${ageOld ? 'color:oklch(55% 0.18 30)' : ''}">${ageText}</span>
               </div>
             </div>
+            <div class="popup-stops">
+              <div class="popup-stops-title">Stationer</div>
+              <div class="popup-stops-loading">Laddar...</div>
+            </div>
           </div>`;
 
           const existing = trainMarkers[trainId];
@@ -1102,6 +1106,9 @@
             existing.marker.setPopupContent(popup);
             existing.lineName = lineName;
             existing.seen = true;
+            if (existing.marker.isPopupOpen()) {
+              refreshTrainStopTimesInPopup(trainId, color);
+            }
           } else {
             const marker = L.marker([lat, lon], { icon, zIndexOffset: 1100 })
               .bindPopup(popup)
@@ -1113,6 +1120,7 @@
               } else {
                 applyTrainHighlight(lineName);
                 startFollowing(trainId, 'train');
+                showTrainStopTimes(trainId, color);
               }
             });
             trainMarkers[trainId] = { marker, animFrame: null, lat, lng: lon, seen: true, lineName };
@@ -1729,6 +1737,30 @@
       if (!tripId || !stopTimesCache.has(tripId)) return;
       // setTimeout 0 låter Leaflet rita klart popup-DOM:en före injecering
       setTimeout(() => injectStopList(renderStopTimesHtml(stopTimesCache.get(tripId), color), false), 0);
+    }
+
+    // ── Tåg-turtabell (Trafikverket TrainAnnouncement) ───────────
+    const trainTimesCache = new Map(); // trainId → rådata [{name,dep,depStr,...}]
+
+    async function showTrainStopTimes(trainId, color) {
+      if (!trainId) return;
+      if (trainTimesCache.has(trainId)) {
+        injectStopList(renderStopTimesHtml(trainTimesCache.get(trainId), color), true);
+        return;
+      }
+      try {
+        const resp = await fetch(`/api/traintimes?trainId=${encodeURIComponent(trainId)}`);
+        if (!resp.ok) return;
+        const stops = await resp.json();
+        if (!Array.isArray(stops) || stops.length === 0) return;
+        trainTimesCache.set(trainId, stops);
+        injectStopList(renderStopTimesHtml(stops, color), true);
+      } catch (e) { console.warn('Turtabell tåg:', e.message); }
+    }
+
+    function refreshTrainStopTimesInPopup(trainId, color) {
+      if (!trainId || !trainTimesCache.has(trainId)) return;
+      setTimeout(() => injectStopList(renderStopTimesHtml(trainTimesCache.get(trainId), color), false), 0);
     }
 
     // ── Main fetch ───────────────────────────────────────────────

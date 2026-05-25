@@ -342,6 +342,25 @@ app.get('/api/shape', apiLimiter, (req, res) => {
   res.json(shape);
 });
 
+// API-endpoint för turtabell för ett specifikt tåg (via Trafikverket TrainAnnouncement)
+app.get('/api/traintimes', apiLimiter, async (req, res) => {
+  const { trainId } = req.query;
+  if (!trainId) return res.status(400).json({ error: 'trainId krävs' });
+  // Validera: tågnummer är alltid numeriska (1–6 siffror)
+  if (!/^\d{1,6}$/.test(trainId)) return res.status(400).json({ error: 'Ogiltigt trainId' });
+
+  try {
+    const stops = await trafikverket.fetchTrainStopTimes(trainId);
+    if (!stops || stops.length === 0) {
+      return res.status(404).json({ error: 'Ingen turtabell hittades för detta tåg' });
+    }
+    res.json(stops);
+  } catch (e) {
+    console.error('traintimes-fel:', e.message);
+    res.status(500).json({ error: 'Kunde inte hämta turtabell' });
+  }
+});
+
 // API-endpoint för fordonshämtning
 app.get('/api/vehicles', apiLimiter, async (req, res) => {
   try {
