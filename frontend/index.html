@@ -1103,11 +1103,15 @@
           if (existing) {
             animateMarker(existing, lat, lon);
             existing.marker.setIcon(icon);
+            const trainPopupOpen   = existing.marker.isPopupOpen();
+            const trainSavedScroll = trainPopupOpen
+              ? (document.querySelector('.popup-stops-list')?.scrollTop ?? -1)
+              : -1;
             existing.marker.setPopupContent(popup);
             existing.lineName = lineName;
             existing.seen = true;
-            if (existing.marker.isPopupOpen()) {
-              refreshTrainStopTimesInPopup(trainId, color);
+            if (trainPopupOpen) {
+              refreshTrainStopTimesInPopup(trainId, color, trainSavedScroll);
             }
           } else {
             const marker = L.marker([lat, lon], { icon, zIndexOffset: 1100 })
@@ -1732,11 +1736,20 @@
       }
     }
 
-    // Återinjecera från cache efter setPopupContent (ingen scroll — bevara användarens position)
-    function refreshStopTimesInPopup(tripId, color) {
+    // Återinjecera från cache direkt efter setPopupContent.
+    // savedScroll: scrollTop som sparades innan setPopupContent (-1 = ingen lista fanns)
+    //   savedScroll < 0  → scrolla till aktuell hållplats
+    //   savedScroll >= 0 → återställ till sparad position (bevara användarens vy)
+    function refreshStopTimesInPopup(tripId, color, savedScroll = -1) {
       if (!tripId || !stopTimesCache.has(tripId)) return;
-      // setTimeout 0 låter Leaflet rita klart popup-DOM:en före injecering
-      setTimeout(() => injectStopList(renderStopTimesHtml(stopTimesCache.get(tripId), color), false), 0);
+      // Synkront — setPopupContent är klart, DOM:en är redo
+      injectStopList(renderStopTimesHtml(stopTimesCache.get(tripId), color), savedScroll < 0);
+      if (savedScroll >= 0) {
+        requestAnimationFrame(() => {
+          const list = document.querySelector('.popup-stops-list');
+          if (list) list.scrollTop = savedScroll;
+        });
+      }
     }
 
     // ── Tåg-turtabell (Trafikverket TrainAnnouncement) ───────────
@@ -1758,9 +1771,15 @@
       } catch (e) { console.warn('Turtabell tåg:', e.message); }
     }
 
-    function refreshTrainStopTimesInPopup(trainId, color) {
+    function refreshTrainStopTimesInPopup(trainId, color, savedScroll = -1) {
       if (!trainId || !trainTimesCache.has(trainId)) return;
-      setTimeout(() => injectStopList(renderStopTimesHtml(trainTimesCache.get(trainId), color), false), 0);
+      injectStopList(renderStopTimesHtml(trainTimesCache.get(trainId), color), savedScroll < 0);
+      if (savedScroll >= 0) {
+        requestAnimationFrame(() => {
+          const list = document.querySelector('.popup-stops-list');
+          if (list) list.scrollTop = savedScroll;
+        });
+      }
     }
 
     // ── Main fetch ───────────────────────────────────────────────
@@ -1972,10 +1991,15 @@
           if (existing) {
             animateMarker(existing, lat, lon);
             existing.marker.setIcon(busIcon);
+            // Spara scroll-position innan DOM ersätts av setPopupContent
+            const popupOpen   = existing.marker.isPopupOpen();
+            const savedScroll = popupOpen
+              ? (document.querySelector('.popup-stops-list')?.scrollTop ?? -1)
+              : -1;
             existing.marker.setPopupContent(popup);
-            // Om popup är öppen: återinjecera turtabell från cache (undviker "Laddar...")
-            if (existing.marker.isPopupOpen()) {
-              refreshStopTimesInPopup(existing.tripId ?? tripId, existing.busColor ?? busColor);
+            // Om popup är öppen: återinjecera direkt (synkront, ingen Laddar...-blixt)
+            if (popupOpen) {
+              refreshStopTimesInPopup(existing.tripId ?? tripId, existing.busColor ?? busColor, savedScroll);
             }
             existing.tripId    = tripId;
             existing.busColor  = busColor;
