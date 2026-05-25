@@ -854,6 +854,8 @@
     let highlightedRoute     = null;
     let highlightedTrainLine = null;
     let routeShapeLayer      = null; // Aktiv ruttform-polyline
+    let followedVehicleId    = null; // Fordon som kartan följer
+    let followedVehicleType  = null; // 'bus' | 'train'
     let isFetching       = false;
     let nextFetchAt      = 0;
     let busLines   = new Set();
@@ -1106,8 +1108,12 @@
               .addTo(trainsGroup);
             marker.on('click', () => {
               clearHighlight();
-              if (highlightedTrainLine === lineName) clearTrainHighlight();
-              else applyTrainHighlight(lineName);
+              if (highlightedTrainLine === lineName) {
+                clearTrainHighlight();
+              } else {
+                applyTrainHighlight(lineName);
+                startFollowing(trainId, 'train');
+              }
             });
             trainMarkers[trainId] = { marker, animFrame: null, lat, lng: lon, seen: true, lineName };
           }
@@ -1135,6 +1141,9 @@
         // Återapplicera highlight om en tåglinje var vald
         if (highlightedTrainLine) applyTrainHighlight(highlightedTrainLine);
         else if (highlightedRoute) applyHighlight(highlightedRoute);
+
+        // Panorera till följt fordon om aktivt
+        panToFollowed();
 
         if (trains.length > 0) {
           console.log(`Tåg: ${trains.length} i vyn`);
@@ -1531,6 +1540,7 @@
 
     function clearHighlight() {
       highlightedRoute = null;
+      stopFollowing();
       clearRouteShape();
       Object.values(vehicleMarkers).forEach(entry => {
         entry.marker.getElement()?.classList.remove('dimmed');
@@ -1559,6 +1569,7 @@
 
     function clearTrainHighlight() {
       highlightedTrainLine = null;
+      stopFollowing();
       Object.values(trainMarkers).forEach(entry => {
         entry.marker.getElement()?.classList.remove('dimmed');
       });
@@ -1579,6 +1590,30 @@
         routeShapeLayer = null;
       }
     }
+
+    // ── Fordonsspårning (karta följer valt fordon) ───────────────
+    function startFollowing(id, type) {
+      followedVehicleId   = id;
+      followedVehicleType = type;
+    }
+
+    function stopFollowing() {
+      followedVehicleId   = null;
+      followedVehicleType = null;
+    }
+
+    function panToFollowed() {
+      if (!followedVehicleId) return;
+      const entry = followedVehicleType === 'train'
+        ? trainMarkers[followedVehicleId]
+        : vehicleMarkers[followedVehicleId];
+      if (!entry) return;
+      const pos = entry.marker.getLatLng();
+      map.panTo(pos, { animate: true, duration: 0.8, easeLinearity: 0.5 });
+    }
+
+    // Avbryt spårning om användaren börjar dra kartan manuellt
+    map.on('dragstart', stopFollowing);
 
     // Hitta närmaste index i shape-arrayen till en given position
     function closestShapeIdx(shape, lat, lng) {
@@ -1913,6 +1948,7 @@
                 clearHighlight();
               } else {
                 applyHighlight(routeKey);
+                startFollowing(vehicleId, 'bus');
                 const cur = entry?.marker.getLatLng();
                 showRouteShape(entry?.tripId, cur?.lat ?? lat, cur?.lng ?? lon, entry?.busColor ?? busColor);
                 // Turtabell laddas async och injiceras i öppen popup
@@ -1944,6 +1980,9 @@
 
         // Återapplicera linjemarkering om en linje var vald
         if (highlightedRoute) applyHighlight(highlightedRoute);
+
+        // Panorera till följt fordon om aktivt
+        panToFollowed();
 
         // Smart startvy: om inga fordon i vy och ingen aktiv filter vid FÖRSTA laddningen,
         // zooma ut till hela regionen. Görs bara en gång för att inte zooma ut vid panorering.
