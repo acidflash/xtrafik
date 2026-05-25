@@ -1830,8 +1830,11 @@
             // Backend (GTFS) resolved it
           } else if (vehicleId.length === 16) {
             const cid = vehicleId.substring(6, 10);
+            // Obs: '1000' och '1001' är fordonstyp-koder, inte linjenummer –
+            // de får INTE mappas till 44/27 (tomkörning), det döljer hela flottan
+            // när GTFS-data saknas och servern returnerar 'Okänt'.
             const cmap = {
-              '1000':'44','1001':'27','0005':'55','1002':'1','1003':'2',
+              '0005':'55','1002':'1','1003':'2',
               '1004':'3','1005':'4','1010':'10','1011':'11','1012':'12',
               '1015':'15','1020':'20','1030':'30','1041':'41','1042':'42',
               '1050':'50','0051':'51','0052':'52','0054':'54','0056':'56',
