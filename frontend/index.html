@@ -744,7 +744,14 @@
     // Interpolerar en markör från nuvarande position till ny position
     // under ~14 s (lite kortare än poll-intervallet på 15 s).
     function animateMarker(entry, toLat, toLng) {
-      if (entry.animFrame) cancelAnimationFrame(entry.animFrame);
+      if (entry.animFrame) {
+        cancelAnimationFrame(entry.animFrame);
+        // Läs markörens faktiska visuella position vid avbrytning,
+        // så nästa animation startar därifrån — inte från startpunkten.
+        const cur = entry.marker.getLatLng();
+        entry.lat = cur.lat;
+        entry.lng = cur.lng;
+      }
 
       const fromLat = entry.lat;
       const fromLng = entry.lng;
