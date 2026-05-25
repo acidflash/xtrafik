@@ -350,10 +350,12 @@
       border-color: oklch(35% 0.005 260 / 0.5);
     }
 
-    /* ── Linjemarkering (dimma ej-valda bussar) ─────────────────── */
+    /* ── Linjemarkering (dimma ej-valda bussar/tåg) ─────────────── */
     .bus-icon-new { transition: opacity 200ms ease-out; }
     .bus-icon-new.dimmed { opacity: 0.15; filter: grayscale(80%); }
     .bus-icon-new.stale { opacity: 0.5; filter: grayscale(50%); }
+    .train-icon { transition: opacity 200ms ease-out; }
+    .train-icon.dimmed { opacity: 0.15; filter: grayscale(80%); }
 
     /* ── Hållplats-tooltip ──────────────────────────────────────── */
     .stop-tooltip {
@@ -734,8 +736,9 @@
     let vehicleRouteMap = {};   // vehicleId → routeKey (för linjemarkering)
     let trainMarkers    = {};   // trainId   → { marker, animFrame, lat, lng, seen }
     let legend = L.control({ position: 'bottomright' });
-    let activeFilter     = '';
-    let highlightedRoute = null;
+    let activeFilter         = '';
+    let highlightedRoute     = null;
+    let highlightedTrainLine = null;
     let isFetching       = false;
     let nextFetchAt      = 0;
     let busLines   = new Set();
@@ -986,6 +989,11 @@
             const marker = L.marker([lat, lon], { icon, zIndexOffset: 1100 })
               .bindPopup(popup)
               .addTo(trainsGroup);
+            marker.on('click', () => {
+              clearHighlight();
+              if (highlightedTrainLine === lineName) clearTrainHighlight();
+              else applyTrainHighlight(lineName);
+            });
             trainMarkers[trainId] = { marker, animFrame: null, lat, lng: lon, seen: true, lineName };
           }
         });
@@ -1008,6 +1016,10 @@
           if (e.lineName) trainLines.set(e.lineName, (trainLines.get(e.lineName) || 0) + 1);
         });
         updateLegend(busLines);
+
+        // Återapplicera highlight om en tåglinje var vald
+        if (highlightedTrainLine) applyTrainHighlight(highlightedTrainLine);
+        else if (highlightedRoute) applyHighlight(highlightedRoute);
 
         if (trains.length > 0) {
           console.log(`Tåg: ${trains.length} i vyn`);
@@ -1130,6 +1142,7 @@
         updateFabBadge();
         clearAllMarkers();
         clearHighlight();
+        clearTrainHighlight();
         fetchData();
       }
     });
@@ -1395,6 +1408,10 @@
         if (!el) return;
         el.classList.toggle('dimmed', vehicleRouteMap[id] !== routeKey);
       });
+      // Dimma alla tåg när en busslinje är vald
+      Object.values(trainMarkers).forEach(entry => {
+        entry.marker.getElement()?.classList.add('dimmed');
+      });
     }
 
     function clearHighlight() {
@@ -1402,9 +1419,42 @@
       Object.values(vehicleMarkers).forEach(entry => {
         entry.marker.getElement()?.classList.remove('dimmed');
       });
+      // Rensa tåg-dimning om ingen tåg-highlight är aktiv
+      if (!highlightedTrainLine) {
+        Object.values(trainMarkers).forEach(entry => {
+          entry.marker.getElement()?.classList.remove('dimmed');
+        });
+      }
     }
 
-    map.on('click', clearHighlight);
+    function applyTrainHighlight(lineName) {
+      highlightedTrainLine = lineName;
+      // Dimma bussar
+      Object.values(vehicleMarkers).forEach(entry => {
+        entry.marker.getElement()?.classList.add('dimmed');
+      });
+      // Dimma tåg som inte tillhör denna linje
+      Object.values(trainMarkers).forEach(entry => {
+        const el = entry.marker.getElement();
+        if (!el) return;
+        el.classList.toggle('dimmed', entry.lineName !== lineName);
+      });
+    }
+
+    function clearTrainHighlight() {
+      highlightedTrainLine = null;
+      Object.values(trainMarkers).forEach(entry => {
+        entry.marker.getElement()?.classList.remove('dimmed');
+      });
+      // Bussar kan ha dimmats av tåg-highlight — rensa dem också
+      if (!highlightedRoute) {
+        Object.values(vehicleMarkers).forEach(entry => {
+          entry.marker.getElement()?.classList.remove('dimmed');
+        });
+      }
+    }
+
+    map.on('click', () => { clearHighlight(); clearTrainHighlight(); });
 
     // ── Main fetch ───────────────────────────────────────────────
     async function fetchData() {
@@ -1610,8 +1660,9 @@
             const marker = L.marker([lat, lon], { icon: busIcon, zIndexOffset: 1000 })
               .bindPopup(popup)
               .addTo(markersGroup);
-            // Klick på buss → markera hela linjen
+            // Klick på buss → markera hela linjen (och rensa ev. tåg-highlight)
             marker.on('click', () => {
+              clearTrainHighlight();
               if (highlightedRoute === routeKey) clearHighlight();
               else applyHighlight(routeKey);
             });
