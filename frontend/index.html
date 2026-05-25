@@ -1477,7 +1477,8 @@
               Linje ${esc(displayNumber)}${vehicle.headsign ? ` <span style="opacity:0.75;font-weight:600;">→ ${esc(vehicle.headsign)}</span>` : ''}
             </div>`;
 
-          if (vehicle.routeLongName && vehicle.routeLongName !== vehicle.headsign) {
+          // Visa routeLongName bara om det ser ut som ett riktigt namn (inte bara siffror)
+          if (vehicle.routeLongName && vehicle.routeLongName !== vehicle.headsign && !/^\d+$/.test(vehicle.routeLongName.trim())) {
             popup += `<p class="popup-long-name">${esc(vehicle.routeLongName)}</p>`;
           }
 
