@@ -19,9 +19,12 @@ const TRIPS_PATH = path.join(GTFS_EXTRACT_PATH, 'trips.txt');
 let routeMap = {}; // route_id -> route_short_name
 let routeInfoMap = {}; // route_id -> full route info (namn, färger, etc)
 let tripToRouteMap = {}; // trip_id -> route_id
+let tripShapeMap = {}; // trip_id -> shape_id
 let tripHeadsignMap = {}; // trip_id -> trip_headsign (destinationstext)
 let blockToRouteMap = {}; // block_id -> route_id
 let agencyMap = {}; // agency_id -> agency_name
+let shapeMap = {}; // shape_id -> { lats: number[], lons: number[] }
+let shapesLoaded = false;
 
 // Tid för senaste uppdatering och uppdateringsintervall (7 dagar i millisekunder)
 let lastUpdateTime = 0;
@@ -307,6 +310,11 @@ function parseTripsData() {
           results[tripId] = routeId;
         }
 
+        // Lagra shape_id för denna resa
+        if (tripId && data.shape_id) {
+          tripShapeMap[tripId] = data.shape_id;
+        }
+
         // Lagra trip_headsign (destinationstext) om den finns
         if (tripId && data.trip_headsign) {
           headsignResults[tripId] = data.trip_headsign.trim();
@@ -331,6 +339,59 @@ function parseTripsData() {
         reject(error);
       });
   });
+}
+
+/**
+ * Parse shapes.txt och bygg kompakt index: shape_id → { lats, lons }
+ * Körs asynkront efter övrig GTFS-data och blockerar inte startvyn.
+ */
+function parseShapesData() {
+  const shapesFile = path.join(GTFS_EXTRACT_PATH, 'shapes.txt');
+  if (!fs.existsSync(shapesFile)) {
+    console.log('shapes.txt saknas – ruttvisning ej tillgänglig');
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve, reject) => {
+    console.log('Parsning av shapes.txt (kan ta några sekunder)...');
+    const tmp = {}; // shape_id → { lats: number[], lons: number[] }
+
+    fs.createReadStream(shapesFile)
+      .pipe(csv())
+      .on('data', (row) => {
+        const id = row.shape_id;
+        if (!id) return;
+        const lat = parseFloat(row.shape_pt_lat);
+        const lon = parseFloat(row.shape_pt_lon);
+        if (isNaN(lat) || isNaN(lon)) return;
+        if (!tmp[id]) tmp[id] = { lats: [], lons: [] };
+        tmp[id].lats.push(lat);
+        tmp[id].lons.push(lon);
+      })
+      .on('end', () => {
+        shapeMap = tmp;
+        shapesLoaded = true;
+        console.log(`${Object.keys(shapeMap).length} ruttformer inlästa`);
+        resolve();
+      })
+      .on('error', (err) => {
+        console.error('Fel vid parsning av shapes.txt:', err.message);
+        resolve(); // Avbryt inte hela laddningen
+      });
+  });
+}
+
+/**
+ * Returnerar ruttform (array av [lat, lon]-par) för ett trip_id.
+ * Returnerar null om shapes inte laddats ännu eller saknas.
+ */
+function getShapeForTrip(tripId) {
+  const shapeId = tripShapeMap[tripId];
+  if (!shapeId) return null;
+  const s = shapeMap[shapeId];
+  if (!s) return null;
+  // Returnera som kompakt array av [lat, lon]-par
+  return s.lats.map((lat, i) => [lat, s.lons[i]]);
 }
 
 /**
@@ -461,8 +522,11 @@ async function loadGtfsData(forceRefresh = false) {
     await parseAgencyData();
     await parseRoutesData();
     await parseTripsData();
-    
+
     console.log('GTFS-data laddad och redo att användas!');
+
+    // Ladda shapes i bakgrunden (57 MB, tar 2-5 s) utan att blockera API
+    parseShapesData().catch(err => console.error('shapes-laddning misslyckades:', err.message));
     
     // Ställ in automatisk uppdatering
     scheduleNextRefresh();
@@ -676,5 +740,7 @@ module.exports = {
   getRouteInfoFromRouteId,
   getRouteColorFromRouteId,
   getRouteTextColorFromRouteId,
-  getRouteLongNameFromRouteId
+  getRouteLongNameFromRouteId,
+  getShapeForTrip,
+  isShapesLoaded: () => shapesLoaded,
 };

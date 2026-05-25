@@ -514,6 +514,11 @@
     const initZoom   = hashPos ? hashPos.zoom : 10;
     const map = L.map('map').setView(initCenter, initZoom);
 
+    // Pane för ruttformer — under fordons-markörer men ovanpå kartbakgrunden
+    map.createPane('routePane');
+    map.getPane('routePane').style.zIndex = 350;
+    map.getPane('routePane').style.pointerEvents = 'none';
+
     // Uppdatera URL-hash när kartan rör sig (debounce 1 s)
     let hashDebounce = null;
     map.on('moveend zoomend', () => {
@@ -739,6 +744,7 @@
     let activeFilter         = '';
     let highlightedRoute     = null;
     let highlightedTrainLine = null;
+    let routeShapeLayer      = null; // Aktiv ruttform-polyline
     let isFetching       = false;
     let nextFetchAt      = 0;
     let busLines   = new Set();
@@ -1416,6 +1422,7 @@
 
     function clearHighlight() {
       highlightedRoute = null;
+      clearRouteShape();
       Object.values(vehicleMarkers).forEach(entry => {
         entry.marker.getElement()?.classList.remove('dimmed');
       });
@@ -1455,6 +1462,58 @@
     }
 
     map.on('click', () => { clearHighlight(); clearTrainHighlight(); });
+
+    // ── Ruttform-visning ─────────────────────────────────────────
+    function clearRouteShape() {
+      if (routeShapeLayer) {
+        routeShapeLayer.remove();
+        routeShapeLayer = null;
+      }
+    }
+
+    // Hitta närmaste index i shape-arrayen till en given position
+    function closestShapeIdx(shape, lat, lng) {
+      let minD = Infinity, idx = 0;
+      for (let i = 0; i < shape.length; i++) {
+        const dlat = shape[i][0] - lat;
+        const dlng = shape[i][1] - lng;
+        const d = dlat * dlat + dlng * dlng;
+        if (d < minD) { minD = d; idx = i; }
+      }
+      return idx;
+    }
+
+    async function showRouteShape(tripId, lat, lng, color) {
+      clearRouteShape();
+      if (!tripId) return;
+      try {
+        const resp = await fetch(`/api/shape?tripId=${encodeURIComponent(tripId)}`);
+        if (!resp.ok) return; // 404 = ingen shape, 503 = laddas ännu
+        const shape = await resp.json();
+        if (!Array.isArray(shape) || shape.length < 2) return;
+
+        const split = closestShapeIdx(shape, lat, lng);
+        const c = color || '#1c65b0';
+
+        // Avklarad sträcka: ljus + tunn
+        const past = L.polyline(shape.slice(0, split + 1), {
+          pane: 'routePane', color: c, weight: 4, opacity: 0.3, interactive: false,
+        });
+        // Kommande sträcka: fyllig + tjock
+        const future = L.polyline(shape.slice(split), {
+          pane: 'routePane', color: c, weight: 6, opacity: 0.85, interactive: false,
+        });
+        // Fordonets position markeras med en liten cirkel
+        const dot = L.circleMarker([lat, lng], {
+          pane: 'routePane', radius: 5, color: '#fff', weight: 2,
+          fillColor: c, fillOpacity: 1, interactive: false,
+        });
+
+        routeShapeLayer = L.layerGroup([past, future, dot]).addTo(map);
+      } catch (e) {
+        console.warn('Kunde inte hämta ruttform:', e.message);
+      }
+    }
 
     // ── Main fetch ───────────────────────────────────────────────
     async function fetchData() {
@@ -1537,6 +1596,7 @@
           if (!markersByRoute[routeKey]) markersByRoute[routeKey] = [];
           if (vehicle.busNumber) busLines.add(vehicle.busNumber);
 
+          const tripId   = vehicle.trip?.tripId || null;
           const busColor = getBusColor(vehicle.busNumber, vehicle.routeColor);
           const textColor = vehicle.routeTextColor || '#FFFFFF';
 
@@ -1655,18 +1715,27 @@
             animateMarker(existing, lat, lon);
             existing.marker.setIcon(busIcon);
             existing.marker.setPopupContent(popup);
+            existing.tripId    = tripId;
+            existing.busColor  = busColor;
             existing.seen = true;
           } else {
             const marker = L.marker([lat, lon], { icon: busIcon, zIndexOffset: 1000 })
               .bindPopup(popup)
               .addTo(markersGroup);
-            // Klick på buss → markera hela linjen (och rensa ev. tåg-highlight)
+            // Klick på buss → markera linjen + visa ruttform
             marker.on('click', () => {
               clearTrainHighlight();
-              if (highlightedRoute === routeKey) clearHighlight();
-              else applyHighlight(routeKey);
+              const entry = vehicleMarkers[vehicleId];
+              if (highlightedRoute === routeKey) {
+                clearHighlight();
+                clearRouteShape();
+              } else {
+                applyHighlight(routeKey);
+                const cur = entry?.marker.getLatLng();
+                showRouteShape(entry?.tripId, cur?.lat ?? lat, cur?.lng ?? lon, entry?.busColor ?? busColor);
+              }
             });
-            vehicleMarkers[vehicleId] = { marker, animFrame: null, lat, lng: lon, seen: true };
+            vehicleMarkers[vehicleId] = { marker, animFrame: null, lat, lng: lon, seen: true, tripId, busColor };
           }
 
           vehicleRouteMap[vehicleId] = routeKey;

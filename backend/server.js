@@ -312,6 +312,21 @@ app.get('/api/version', (req, res) => {
   }
 });
 
+// API-endpoint för ruttform (polyline) för ett specifikt trip_id
+app.get('/api/shape', apiLimiter, (req, res) => {
+  const { tripId } = req.query;
+  if (!tripId) return res.status(400).json({ error: 'tripId krävs' });
+
+  if (!gtfsLoader.isShapesLoaded()) {
+    return res.status(503).json({ error: 'Ruttdata laddas fortfarande, försök igen om några sekunder' });
+  }
+
+  const shape = gtfsLoader.getShapeForTrip(tripId);
+  if (!shape) return res.status(404).json({ error: 'Ingen ruttform hittades för detta trip_id' });
+
+  res.json(shape);
+});
+
 // API-endpoint för fordonshämtning
 app.get('/api/vehicles', apiLimiter, async (req, res) => {
   try {
