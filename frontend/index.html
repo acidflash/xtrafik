@@ -515,17 +515,33 @@
       background: var(--color-row-divider);
     }
     /* Nästa hållplats (current) */
-    .stop-row.stop-current .stop-time { color: var(--color-text); }
+    .stop-row.stop-current {
+      background: color-mix(in oklch, var(--stop-accent, #1c65b0) 12%, transparent);
+    }
+    .stop-row.stop-current .stop-time {
+      color: var(--stop-accent, #1c65b0);
+      font-weight: 700;
+    }
     .stop-row.stop-current .stop-name {
       color: var(--color-text);
       font-weight: 700;
+      font-size: 13px;
     }
     .stop-row.stop-current .stop-dot {
+      width: 10px;
+      height: 10px;
       border-color: var(--stop-accent, #1c65b0);
       background: var(--stop-accent, #1c65b0);
       box-shadow: 0 0 0 3px color-mix(in oklch, var(--stop-accent, #1c65b0) 25%, transparent);
     }
-    .stop-row.stop-current::before { background: var(--stop-accent, #1c65b0); opacity: 0.4; }
+    .stop-row.stop-current::before { background: var(--stop-accent, #1c65b0); opacity: 0.5; }
+    @media (prefers-reduced-motion: no-preference) {
+      @keyframes stop-pulse {
+        0%, 100% { box-shadow: 0 0 0 3px color-mix(in oklch, var(--stop-accent, #1c65b0) 28%, transparent); }
+           50%   { box-shadow: 0 0 0 6px color-mix(in oklch, var(--stop-accent, #1c65b0) 10%, transparent); }
+      }
+      .stop-row.stop-current .stop-dot { animation: stop-pulse 2s ease-in-out infinite; }
+    }
     /* Kommande hållplatser */
     .stop-row.stop-future .stop-time { color: var(--color-text); }
     .stop-row.stop-future .stop-name { color: var(--color-text); }
