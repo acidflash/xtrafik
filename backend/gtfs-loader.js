@@ -163,7 +163,6 @@ async function downloadGtfsData() {
     if (!response.ok) {
       if (response.status === 403) {
         console.error(`API-åtkomst nekad (403 Forbidden). Kontrollera att din GTFS API-nyckel är giltig och har tillräckliga behörigheter.`);
-        console.error(`GTFS API-nyckel som användes: ${GTFS_API_KEY.substring(0, 4)}...${GTFS_API_KEY.substring(GTFS_API_KEY.length - 4)}`);
       } else {
         console.error(`API svarade med statuskod ${response.status}: ${response.statusText}`);
       }
