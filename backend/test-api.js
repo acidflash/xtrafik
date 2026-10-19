@@ -6,7 +6,7 @@ const dotenv = require('dotenv');
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 const API_KEY = process.env.API_KEY;
-console.log(`Testar API-anrop med nyckel: ${API_KEY}`);
+console.log(`Testar API-anrop. API-nyckel ${API_KEY ? 'finns' : 'saknas'}.`);
 
 async function testApi() {
   try {

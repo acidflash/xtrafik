@@ -24,9 +24,7 @@ const ADMIN_KEY = process.env.ADMIN_KEY;
 
 // Kontrollera och logga API-nyckeln
 if (API_KEY) {
-  const firstChars = API_KEY.substring(0, 4);
-  const lastChars = API_KEY.substring(API_KEY.length - 4);
-  console.log(`API-nyckel laddad. Börjar med: ${firstChars}, slutar med: ${lastChars}, längd: ${API_KEY.length}`);
+  console.log('API-nyckel laddad.');
 } else {
   console.error('ALLVARLIGT FEL: API_KEY är inte definierad. Kontrollera din .env-fil i projektets rotkatalog.');
   console.error('Servern kommer att starta men API-anrop kommer att misslyckas.');
@@ -299,7 +297,7 @@ async function fetchVehiclesFromSamtrafiken() {
 }
 
 // ── Version-endpoint ──────────────────────────────────────────────
-app.get('/api/version', (req, res) => {
+app.get('/api/version', apiLimiter, (req, res) => {
   try {
     const versionFile = path.resolve(__dirname, 'version.json');
     if (fs.existsSync(versionFile)) {
