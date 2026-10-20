@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const fetch = require('node-fetch');
-const extract = require('extract-zip');
+const yauzl = require('yauzl');
 const csv = require('csv-parser');
 const dotenv = require('dotenv');
 
@@ -194,6 +194,37 @@ async function downloadGtfsData() {
 }
 
 /**
+ * Packar upp platta .txt-filer från zip-arkivet. Kataloger, symlänkar och
+ * namn med sökvägar hoppas över så att inget kan skrivas utanför destDir.
+ */
+function extractTxtFiles(zipPath, destDir) {
+  return new Promise((resolve, reject) => {
+    yauzl.open(zipPath, { lazyEntries: true }, (err, zipfile) => {
+      if (err) return reject(err);
+      zipfile.on('error', reject);
+      zipfile.on('end', resolve);
+      zipfile.on('entry', (entry) => {
+        const mode = (entry.externalFileAttributes >>> 16) & 0o170000;
+        const isSymlink = mode === 0o120000;
+        if (isSymlink || !/^[\w.-]+\.txt$/.test(entry.fileName)) {
+          zipfile.readEntry();
+          return;
+        }
+        zipfile.openReadStream(entry, (err, readStream) => {
+          if (err) return reject(err);
+          const out = fs.createWriteStream(path.join(destDir, entry.fileName));
+          out.on('error', reject);
+          out.on('finish', () => zipfile.readEntry());
+          readStream.on('error', reject);
+          readStream.pipe(out);
+        });
+      });
+      zipfile.readEntry();
+    });
+  });
+}
+
+/**
  * Extraherar den nedladdade zip-filen
  */
 async function extractGtfsData() {
@@ -205,7 +236,7 @@ async function extractGtfsData() {
       fs.mkdirSync(GTFS_EXTRACT_PATH, { recursive: true });
     }
     
-    await extract(GTFS_ZIP_PATH, { dir: GTFS_EXTRACT_PATH });
+    await extractTxtFiles(GTFS_ZIP_PATH, GTFS_EXTRACT_PATH);
     console.log('GTFS-data extraherad!');
     return true;
   } catch (error) {
